@@ -11,6 +11,7 @@ from . import (
     Backend,
     Certificate,
     ClientContext,
+    NextProtocol,
     PrivateKey,
     ServerContext,
     TLSWrappedBuffer,
@@ -22,46 +23,78 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
     """
     An in-memory TLS implementation based on OpenSSL.
     """
-    def __init__(self, parent_context, ssl_context):
+    def __init__(self, parent_context, ssl_context, server_hostname):
         self._parent_context = parent_context
         self._ssl_context = ssl_context
+        self._ciphertext_buffer = bytearray()
+
+        # Set up the SSLObject we're going to back this with.
+        server_side = isinstance(parent_context, ServerContext)
+        self._in_bio = ssl.MemoryBIO()
+        self._out_bio = ssl.MemoryBIO()
+        self._object = ssl_context.wrap_bio(
+            self._in_bio,
+            self._out_bio,
+            server_side=server_side,
+            server_hostname=server_hostname
+        )
 
     def read(self, amt):
-        pass
+        return self._object.read(amt)
 
     def readinto(self, buffer, amt):
-        pass
+        return self._object.read(amt, buffer)
 
     def write(self, buf):
-        pass
+        return self._object.write(buf)
 
     def do_handshake(self):
-        pass
+        return self._object.do_handshake()
 
     def cipher(self):
-        pass
+        ossl_cipher, _, _ = self._object.cipher()
+        # TODO: What do we do with this?
 
     def negotiated_protocol(self):
-        pass
+        proto = self._object.selected_alpn_protocol()
+        if proto is None:
+            proto = self._object.selected_npn_protocol()
+
+        try:
+            return NextProtocol(proto)
+        except ValueError:
+            return proto
 
     @property
     def context(self):
         return self._parent_context
 
     def negotiated_tls_version(self):
+        # TODO: Can I actually get this answer from OpenSSL? I can get the
+        # version that defined the cipher in use, but that's not the same.
         pass
 
     def shutdown(self):
-        pass
+        return self._object.unwrap()
 
     def receive_from_network(self, data):
-        pass
+        # TODO: This method returns a length. Can it return short? What do we
+        # do if it does?
+        self._in_bio.write(data)
 
-    def peek_outgoing(self, data):
-        pass
+    def peek_outgoing(self, amt):
+        # TODO: Evaluate this for what happens when it's called with no data.
+        # What about EOF?
+        ciphertext_bytes = len(self._ciphertext_buffer)
+        if ciphertext_bytes < amt:
+            self._ciphertext_buffer += self._out_bio.read(
+                amt - ciphertext_bytes
+            )
 
-    def consume_outgoing(self, data):
-        pass
+        return self._ciphertext_buffer[:amt]
+
+    def consume_outgoing(self, amt):
+        del self._ciphertext_buffer[:amt]
 
 
 class OpenSSLClientContext(ClientContext):
