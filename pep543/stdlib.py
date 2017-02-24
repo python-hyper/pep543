@@ -24,6 +24,12 @@ class OpenSSLClientContext(ClientContext):
     def configuration(self):
         return self._configuration
 
+    def wrap_buffers(self, server_hostname):
+        """
+        Create a buffered I/O object that can be used to do TLS.
+        """
+        pass
+
 
 class OpenSSLServerContext(ServerContext):
     """
@@ -37,6 +43,12 @@ class OpenSSLServerContext(ServerContext):
     @property
     def configuration(self):
         return self._configuration
+
+    def wrap_buffers(self):
+        """
+        Create a buffered I/O object that can be used to do TLS.
+        """
+        pass
 
 
 class OpenSSLCertificate(Certificate):
