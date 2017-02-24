@@ -27,6 +27,9 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
     def __init__(self, parent_context, ssl_context, server_hostname):
         self._parent_context = parent_context
         self._ssl_context = ssl_context
+
+        # We need this extra buffer to implement the peek/consume API, which
+        # the MemoryBIO object does not allow.
         self._ciphertext_buffer = bytearray()
 
         # Set up the SSLObject we're going to back this with.
@@ -116,7 +119,39 @@ class OpenSSLClientContext(ClientContext):
         """
         Create a buffered I/O object that can be used to do TLS.
         """
-        pass
+        some_context = ssl.create_default_context()
+
+        if not self._configuration.validate_certificates:
+            some_context.check_hostname = False
+            some_context.verify_mode = ssl.CERT_NONE
+
+        if self._configuration.certificate_chain:
+            # TODO: Do the thing
+            pass
+
+        # TODO: Do the thing with the ciphers
+        ciphers = self._configuration.ciphers
+
+        if self._configuration.inner_protocols:
+            protocols = []
+            for np in self._configuration.inner_protocols:
+                proto_string = np if isinstance(np, bytes) else np.value
+                protocols.append(proto_string)
+
+            # If ALPN/NPN aren't supported, that's no problem.
+            try:
+                some_context.set_alpn_protocols(protocols)
+            except NotImplementedError:
+                pass
+
+            try:
+                some_context.set_npn_protocols(protocols)
+            except NotImplementedError:
+                pass
+
+        # TODO: Do the thing with the TLS versions
+
+        # TODO: Do the thing with trust stores.
 
 
 class OpenSSLServerContext(ServerContext):
