@@ -14,6 +14,7 @@ from . import (
     NextProtocol,
     PrivateKey,
     ServerContext,
+    TLSVersion,
     TLSWrappedBuffer,
     TrustStore
 )
@@ -70,9 +71,10 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
         return self._parent_context
 
     def negotiated_tls_version(self):
-        # TODO: Can I actually get this answer from OpenSSL? I can get the
-        # version that defined the cipher in use, but that's not the same.
-        pass
+        ossl_version = self._object.version()
+        if ossl_version is None:
+            return None
+        return TLSVersion(ossl_version)
 
     def shutdown(self):
         return self._object.unwrap()
