@@ -10,10 +10,12 @@ import ssl
 from . import (
     Backend,
     Certificate,
+    CipherSuite,
     ClientContext,
     NextProtocol,
     PrivateKey,
     ServerContext,
+    TLSError,
     TLSVersion,
     TLSWrappedBuffer,
     TrustStore
@@ -56,8 +58,24 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
         return self._object.do_handshake()
 
     def cipher(self):
+        # This is the OpenSSL cipher name. We want the ID, which we can get by
+        # looking for this entry in the context's list of supported ciphers.
+        # FIXME: This works only on 3.6. To get this to work elsewhere, we may
+        # need to vendor tlsdb.
         ossl_cipher, _, _ = self._object.cipher()
-        # TODO: What do we do with this?
+
+        for cipher in self._ssl_context.get_ciphers():
+            if cipher['name'] == ossl_cipher:
+                break
+        else:
+            return None
+
+        cipher_id = cipher['id'] & 0xffff
+        try:
+            return CipherSuite(cipher_id)
+        except ValueError:
+            return cipher_id
+
 
     def negotiated_protocol(self):
         proto = self._object.selected_alpn_protocol()
