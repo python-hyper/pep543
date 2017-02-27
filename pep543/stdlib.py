@@ -197,7 +197,17 @@ class OpenSSLCertificate(Certificate):
     A handle to a certificate object, either on disk or in a buffer, that can
     be used for either server or client connectivity.
     """
-    pass
+    def __init__(self, buffer=None, path=None):
+        self._cert_buffer = buffer
+        self._cert_path = path
+
+    @classmethod
+    def from_buffer(cls, buffer):
+        return cls(buffer=buffer)
+
+    @classmethod
+    def from_file(cls, path):
+        return cls(path=path)
 
 
 class OpenSSLPrivateKey(PrivateKey):
@@ -205,7 +215,17 @@ class OpenSSLPrivateKey(PrivateKey):
     A handle to a private key object, either on disk or in a buffer, that can
     be used along with a certificate for either server or client connectivity.
     """
-    pass
+    def __init__(self, buffer=None, path=None):
+        self._key_buffer = buffer
+        self._key_path = path
+
+    @classmethod
+    def from_buffer(cls, buffer):
+        return cls(buffer=buffer)
+
+    @classmethod
+    def from_file(cls, path):
+        return cls(path=path)
 
 
 class OpenSSLTrustStore(TrustStore):
@@ -213,7 +233,17 @@ class OpenSSLTrustStore(TrustStore):
     A handle to a trust store object, either on disk or the system trust store,
     that can be used to validate the certificates presented by a remote peer.
     """
-    pass
+    def __init__(self, path=None, system=False):
+        self._trust_path = path
+        self._system = system
+
+    @classmethod
+    def system(cls):
+        return cls(system=True)
+
+    @classmethod
+    def from_pem_file(cls, path):
+        return cls(path=path)
 
 
 #: The stdlib ``Backend`` object.
