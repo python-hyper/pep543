@@ -189,6 +189,7 @@ class OpenSSLClientContext(ClientContext):
 
         # TODO: Do the thing with the TLS versions
 
+        return OpenSSLWrappedBuffer(self, some_context, server_hostname)
 
 
 class OpenSSLServerContext(ServerContext):
