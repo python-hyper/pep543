@@ -144,8 +144,19 @@ class OpenSSLClientContext(ClientContext):
             some_context.verify_mode = ssl.CERT_NONE
 
         if self._configuration.certificate_chain:
-            # TODO: Do the thing
-            pass
+            # FIXME: support multiple certificates at different filesystem
+            # locations. This requires being prepared to create temporary
+            # files.
+            cert_chain = self._configuration.certificate_chain
+            assert len(cert_chain[0]) == 1
+            cert_path = cert_chain[0]._cert_path
+            key_path = None
+            password = None
+            if cert_chain:
+                key_path = cert_chain[1]._key_path
+                password = cert_chain[1]._password
+
+            some_context.load_cert_chain(cert_path, key_path, password)
 
         # TODO: Do the thing with the ciphers
         ciphers = self._configuration.ciphers
@@ -221,17 +232,18 @@ class OpenSSLPrivateKey(PrivateKey):
     A handle to a private key object, either on disk or in a buffer, that can
     be used along with a certificate for either server or client connectivity.
     """
-    def __init__(self, buffer=None, path=None):
+    def __init__(self, buffer=None, path=None, password=None):
         self._key_buffer = buffer
         self._key_path = path
+        self._password = password
 
     @classmethod
-    def from_buffer(cls, buffer):
-        return cls(buffer=buffer)
+    def from_buffer(cls, buffer, password=None):
+        return cls(buffer=buffer, password=password)
 
     @classmethod
-    def from_file(cls, path):
-        return cls(path=path)
+    def from_file(cls, path, password=None):
+        return cls(path=path, password=password)
 
 
 class OpenSSLTrustStore(TrustStore):
