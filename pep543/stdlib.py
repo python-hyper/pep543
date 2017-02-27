@@ -22,6 +22,48 @@ from . import (
 )
 
 
+# We need all the various TLS options. We hard code this as their integer
+# values to deal with the fact that the symbolic constants are only exposed if
+# both OpenSSL and Python agree that they should be. That's problematic for
+# something that should be generic. This way works better.
+_OP_NO_SSLv2 = 0x01000000
+_OP_NO_SSLv3 = 0x02000000
+_OP_NO_TLSv1 = 0x04000000
+_OP_NO_TLSv1_2 = 0x08000000
+_OP_NO_TLSv1_1 = 0x10000000
+_OP_NO_TLSv1_3 = 0x20000000
+
+_opts_from_min_version = {
+    TLSVersion.MINIMUM_SUPPORTED: 0,
+    TLSVersion.SSLv2: 0,
+    TLSVersion.SSLv3: _OP_NO_SSLv2,
+    TLSVersion.TLSv1: _OP_NO_SSLv2 | _OP_NO_SSLv3,
+    TLSVersion.TLSv1_1: _OP_NO_SSLv2 | _OP_NO_SSLv3 | _OP_NO_TLSv1,
+    TLSVersion.TLSv1_2: _OP_NO_SSLv2 | _OP_NO_SSLv3 | _OP_NO_TLSv1 | _OP_NO_TLSv1_1,
+    TLSVersion.TLSv1_3: _OP_NO_SSLv2 | _OP_NO_SSLv3 | _OP_NO_TLSv1 | _OP_NO_TLSv1_1 | _OP_NO_TLSv1_2,
+}
+_opts_from_max_version = {
+    TLSVersion.SSLv2: _OP_NO_TLSv1_3 | _OP_NO_TLSv1_2 | _OP_NO_TLSv1_1 | _OP_NO_TLSv1 | _OP_NO_SSLv3,
+    TLSVersion.SSLv3: _OP_NO_TLSv1_3 | _OP_NO_TLSv1_2 | _OP_NO_TLSv1_1 | _OP_NO_TLSv1,
+    TLSVersion.TLSv1: _OP_NO_TLSv1_3 | _OP_NO_TLSv1_2 | _OP_NO_TLSv1_1,
+    TLSVersion.TLSv1_1: _OP_NO_TLSv1_3 | _OP_NO_TLSv1_2,
+    TLSVersion.TLSv1_2: _OP_NO_TLSv1_3,
+    TLSVersion.TLSv1_3: 0,
+    TLSVersion.MAXIMUM_SUPPORTED: 0
+}
+
+
+def _version_options_from_version_range(min, max):
+    """
+    Given a TLS version range, we need to convert that into options that
+    exclude TLS versions as appropriate.
+    """
+    try:
+        return _opts_from_min_version[min] | _opts_from_max_version[max]
+    except KeyError:
+        raise TLSError("Bad maximum/minimum options")
+
+
 class OpenSSLWrappedBuffer(TLSWrappedBuffer):
     """
     An in-memory TLS implementation based on OpenSSL.
@@ -187,7 +229,10 @@ class OpenSSLClientContext(ClientContext):
             except NotImplementedError:
                 pass
 
-        # TODO: Do the thing with the TLS versions
+        some_context.options |= _version_options_from_version_range(
+            self._configuration.lowest_supported_version,
+            self._configuration.highest_supported_version,
+        )
 
         return OpenSSLWrappedBuffer(self, some_context, server_hostname)
 
