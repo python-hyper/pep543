@@ -169,8 +169,13 @@ class OpenSSLClientContext(ClientContext):
 
         # TODO: Do the thing with the TLS versions
 
+        # Load the trust stores.
         for trust_store in self._configuration.trust_stores:
-            if trust_store._system
+            if trust_store is _SYSTEMTRUSTSTORE:
+                some_context.load_default_certs()
+                continue
+
+            some_context.load_verify_locations(trust_store._trust_path)
 
 
 class OpenSSLServerContext(ServerContext):
