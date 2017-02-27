@@ -169,7 +169,8 @@ class OpenSSLClientContext(ClientContext):
 
         # TODO: Do the thing with the TLS versions
 
-        # TODO: Do the thing with trust stores.
+        for trust_store in self._configuration.trust_stores:
+            if trust_store._system
 
 
 class OpenSSLServerContext(ServerContext):
@@ -233,17 +234,21 @@ class OpenSSLTrustStore(TrustStore):
     A handle to a trust store object, either on disk or the system trust store,
     that can be used to validate the certificates presented by a remote peer.
     """
-    def __init__(self, path=None, system=False):
+    def __init__(self, path):
         self._trust_path = path
-        self._system = system
 
     @classmethod
     def system(cls):
-        return cls(system=True)
+        return _SYSTEMTRUSTSTORE
 
     @classmethod
     def from_pem_file(cls, path):
         return cls(path=path)
+
+
+# We use a sentinel object for the system trust store that is guaranteed not
+# to compare equal to any other object.
+_SYSTEMTRUSTSTORE = OpenSSLTrustStore(object())
 
 
 #: The stdlib ``Backend`` object.
