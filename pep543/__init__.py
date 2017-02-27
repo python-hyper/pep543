@@ -822,7 +822,7 @@ class Certificate(object):
 
 class PrivateKey(object):
     @classmethod
-    def from_buffer(cls, buffer, password):
+    def from_buffer(cls, buffer, password=None):
         """
         Creates a PrivateKey object from a byte buffer. This byte buffer
         may be either PEM-encoded or DER-encoded. If the buffer is PEM
@@ -845,7 +845,7 @@ class PrivateKey(object):
         raise NotImplementedError("Private Keys from buffers not supported")
 
     @classmethod
-    def from_file(cls, path, password):
+    def from_file(cls, path, password=None):
         """
         Creates a PrivateKey object from a file on disk. This method may
         be a convenience method that wraps ``open`` and ``from_buffer``,
