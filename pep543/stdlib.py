@@ -137,11 +137,20 @@ class OpenSSLClientContext(ClientContext):
         """
         Create a buffered I/O object that can be used to do TLS.
         """
-        some_context = ssl.create_default_context()
+        some_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        some_context.options |= ssl.OP_NO_COMPRESSION
 
         if not self._configuration.validate_certificates:
             some_context.check_hostname = False
             some_context.verify_mode = ssl.CERT_NONE
+        else:
+            # Load the trust stores.
+            for trust_store in self._configuration.trust_stores:
+                if trust_store is _SYSTEMTRUSTSTORE:
+                    some_context.load_default_certs()
+                    continue
+
+            some_context.load_verify_locations(trust_store._trust_path)
 
         if self._configuration.certificate_chain:
             # FIXME: support multiple certificates at different filesystem
@@ -180,13 +189,6 @@ class OpenSSLClientContext(ClientContext):
 
         # TODO: Do the thing with the TLS versions
 
-        # Load the trust stores.
-        for trust_store in self._configuration.trust_stores:
-            if trust_store is _SYSTEMTRUSTSTORE:
-                some_context.load_default_certs()
-                continue
-
-            some_context.load_verify_locations(trust_store._trust_path)
 
 
 class OpenSSLServerContext(ServerContext):
