@@ -72,6 +72,70 @@ def _version_options_from_version_range(min, max):
         raise TLSError("Bad maximum/minimum options")
 
 
+def _init_context(config):
+    """
+    Initialize an ssl.SSLContext object with a given configuration.
+    """
+    some_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+    some_context.options |= ssl.OP_NO_COMPRESSION
+
+    if not config.validate_certificates:
+        some_context.check_hostname = False
+        some_context.verify_mode = ssl.CERT_NONE
+    else:
+        # Load the trust stores.
+        for trust_store in config.trust_stores:
+            if trust_store is _SYSTEMTRUSTSTORE:
+                some_context.load_default_certs()
+                continue
+
+        some_context.load_verify_locations(trust_store._trust_path)
+
+    if config.certificate_chain:
+        # FIXME: support multiple certificates at different filesystem
+        # locations. This requires being prepared to create temporary
+        # files.
+        cert_chain = config.certificate_chain
+        assert len(cert_chain[0]) == 1
+        cert_path = cert_chain[0]._cert_path
+        key_path = None
+        password = None
+        if cert_chain:
+            key_path = cert_chain[1]._key_path
+            password = cert_chain[1]._password
+
+        some_context.load_cert_chain(cert_path, key_path, password)
+
+    # Set the cipher suites.
+    ossl_names = [_cipher_map[cipher] for cipher in config.ciphers]
+    ctx.set_ciphers(':'.join(ossl_names))
+
+    if config.inner_protocols:
+        protocols = []
+        for np in config.inner_protocols:
+            proto_string = np if isinstance(np, bytes) else np.value
+            protocols.append(proto_string)
+
+        # If ALPN/NPN aren't supported, that's no problem.
+        try:
+            some_context.set_alpn_protocols(protocols)
+        except NotImplementedError:
+            pass
+
+        try:
+            some_context.set_npn_protocols(protocols)
+        except NotImplementedError:
+            pass
+
+    some_context.options |= _version_options_from_version_range(
+        config.lowest_supported_version,
+        config.highest_supported_version,
+    )
+
+    # TODO: Add ServerNameCallback
+    return some_context
+
+
 class OpenSSLWrappedBuffer(TLSWrappedBuffer):
     """
     An in-memory TLS implementation based on OpenSSL.
@@ -187,65 +251,8 @@ class OpenSSLClientContext(ClientContext):
         """
         Create a buffered I/O object that can be used to do TLS.
         """
-        some_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-        some_context.options |= ssl.OP_NO_COMPRESSION
-
-        if not self._configuration.validate_certificates:
-            some_context.check_hostname = False
-            some_context.verify_mode = ssl.CERT_NONE
-        else:
-            # Load the trust stores.
-            for trust_store in self._configuration.trust_stores:
-                if trust_store is _SYSTEMTRUSTSTORE:
-                    some_context.load_default_certs()
-                    continue
-
-            some_context.load_verify_locations(trust_store._trust_path)
-
-        if self._configuration.certificate_chain:
-            # FIXME: support multiple certificates at different filesystem
-            # locations. This requires being prepared to create temporary
-            # files.
-            cert_chain = self._configuration.certificate_chain
-            assert len(cert_chain[0]) == 1
-            cert_path = cert_chain[0]._cert_path
-            key_path = None
-            password = None
-            if cert_chain:
-                key_path = cert_chain[1]._key_path
-                password = cert_chain[1]._password
-
-            some_context.load_cert_chain(cert_path, key_path, password)
-
-        # Set the cipher suites.
-        ossl_names = [
-            _cipher_map[cipher] for cipher in self._configuration.ciphers
-        ]
-        ctx.set_ciphers(':'.join(ossl_names))
-
-        if self._configuration.inner_protocols:
-            protocols = []
-            for np in self._configuration.inner_protocols:
-                proto_string = np if isinstance(np, bytes) else np.value
-                protocols.append(proto_string)
-
-            # If ALPN/NPN aren't supported, that's no problem.
-            try:
-                some_context.set_alpn_protocols(protocols)
-            except NotImplementedError:
-                pass
-
-            try:
-                some_context.set_npn_protocols(protocols)
-            except NotImplementedError:
-                pass
-
-        some_context.options |= _version_options_from_version_range(
-            self._configuration.lowest_supported_version,
-            self._configuration.highest_supported_version,
-        )
-
-        return OpenSSLWrappedBuffer(self, some_context, server_hostname)
+        ossl_context = _init_context(self._configuration)
+        return OpenSSLWrappedBuffer(self, ossl_context, server_hostname)
 
 
 class OpenSSLServerContext(ServerContext):
@@ -265,7 +272,8 @@ class OpenSSLServerContext(ServerContext):
         """
         Create a buffered I/O object that can be used to do TLS.
         """
-        pass
+        ossl_context = _init_context(self._configuration)
+        return OpenSSLWrappedBuffer(self, ossl_context, server_hostname=None)
 
 
 class OpenSSLCertificate(Certificate):
