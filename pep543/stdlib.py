@@ -53,6 +53,14 @@ _opts_from_max_version = {
 }
 
 
+# We need to populate a dictionary of ciphers that OpenSSL supports, in the
+# form of {16-bit number: OpenSSL suite name}.
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
+ctx.set_ciphers('ALL:COMPLEMENTOFALL')
+_cipher_map = {c['id'] & 0xffff: c['name'] for c in ctx.get_ciphers()}
+del ctx
+
+
 def _version_options_from_version_range(min, max):
     """
     Given a TLS version range, we need to convert that into options that
@@ -209,8 +217,11 @@ class OpenSSLClientContext(ClientContext):
 
             some_context.load_cert_chain(cert_path, key_path, password)
 
-        # TODO: Do the thing with the ciphers
-        ciphers = self._configuration.ciphers
+        # Set the cipher suites.
+        ossl_names = [
+            _cipher_map[cipher] for cipher in self._configuration.ciphers
+        ]
+        ctx.set_ciphers(':'.join(ossl_names))
 
         if self._configuration.inner_protocols:
             protocols = []
