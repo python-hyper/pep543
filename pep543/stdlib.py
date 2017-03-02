@@ -107,8 +107,13 @@ def _init_context(config):
         some_context.load_cert_chain(cert_path, key_path, password)
 
     # Set the cipher suites.
-    ossl_names = [_cipher_map[cipher] for cipher in config.ciphers]
-    ctx.set_ciphers(':'.join(ossl_names))
+    ossl_names = [
+        _cipher_map[cipher] for cipher in config.ciphers
+        if cipher in _cipher_map
+    ]
+    if not ossl_names:
+        raise TLSError("Unable to find any supported ciphers!")
+    some_context.set_ciphers(':'.join(ossl_names))
 
     if config.inner_protocols:
         protocols = []
