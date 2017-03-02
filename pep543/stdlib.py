@@ -40,10 +40,14 @@ _opts_from_min_version = {
     TLSVersion.TLSv1: _OP_NO_SSLv2 | _OP_NO_SSLv3,
     TLSVersion.TLSv1_1: _OP_NO_SSLv2 | _OP_NO_SSLv3 | _OP_NO_TLSv1,
     TLSVersion.TLSv1_2: _OP_NO_SSLv2 | _OP_NO_SSLv3 | _OP_NO_TLSv1 | _OP_NO_TLSv1_1,
-    TLSVersion.TLSv1_3: _OP_NO_SSLv2 | _OP_NO_SSLv3 | _OP_NO_TLSv1 | _OP_NO_TLSv1_1 | _OP_NO_TLSv1_2,
+    TLSVersion.TLSv1_3: (
+        _OP_NO_SSLv2 | _OP_NO_SSLv3 | _OP_NO_TLSv1 | _OP_NO_TLSv1_1 | _OP_NO_TLSv1_2
+    ),
 }
 _opts_from_max_version = {
-    TLSVersion.SSLv2: _OP_NO_TLSv1_3 | _OP_NO_TLSv1_2 | _OP_NO_TLSv1_1 | _OP_NO_TLSv1 | _OP_NO_SSLv3,
+    TLSVersion.SSLv2: (
+        _OP_NO_TLSv1_3 | _OP_NO_TLSv1_2 | _OP_NO_TLSv1_1 | _OP_NO_TLSv1 | _OP_NO_SSLv3
+    ),
     TLSVersion.SSLv3: _OP_NO_TLSv1_3 | _OP_NO_TLSv1_2 | _OP_NO_TLSv1_1 | _OP_NO_TLSv1,
     TLSVersion.TLSv1: _OP_NO_TLSv1_3 | _OP_NO_TLSv1_2 | _OP_NO_TLSv1_1,
     TLSVersion.TLSv1_1: _OP_NO_TLSv1_3 | _OP_NO_TLSv1_2,
@@ -194,7 +198,6 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
             return CipherSuite(cipher_id)
         except ValueError:
             return cipher_id
-
 
     def negotiated_protocol(self):
         proto = self._object.selected_alpn_protocol()
