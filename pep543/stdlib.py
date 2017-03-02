@@ -76,30 +76,38 @@ def _version_options_from_version_range(min, max):
         raise TLSError("Bad maximum/minimum options")
 
 
-def _init_context(config):
+def _configure_context_for_validation(context, validate, trust_store):
     """
-    Initialize an ssl.SSLContext object with a given configuration.
-    """
-    some_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-    some_context.options |= ssl.OP_NO_COMPRESSION
+    Given an SSLContext object, configures it for certificate validation based
+    on the validate_certificates and trust_store properties of the PEP 543
+    config.
 
-    if not config.validate_certificates:
-        some_context.check_hostname = False
-        some_context.verify_mode = ssl.CERT_NONE
+    Returns the context.
+    """
+    if not validate:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
     else:
-        # Load the trust stores.
-        for trust_store in config.trust_stores:
-            if trust_store is _SYSTEMTRUSTSTORE:
-                some_context.load_default_certs()
-                continue
+        # Load the trust store
+        if trust_store is _SYSTEMTRUSTSTORE:
+            context.load_default_certs()
+        else:
+            context.load_verify_locations(trust_store._trust_path)
 
-        some_context.load_verify_locations(trust_store._trust_path)
+    return context
 
-    if config.certificate_chain:
+
+def _configure_context_for_certs(context, cert_chain):
+    """
+    Given a PEP 543 cert chain, configure the SSLContext to send that cert
+    chain in the handshake.
+
+    Returns the context.
+    """
+    if cert_chain:
         # FIXME: support multiple certificates at different filesystem
         # locations. This requires being prepared to create temporary
         # files.
-        cert_chain = config.certificate_chain
         assert len(cert_chain[0]) == 1
         cert_path = cert_chain[0]._cert_path
         key_path = None
@@ -108,39 +116,76 @@ def _init_context(config):
             key_path = cert_chain[1]._key_path
             password = cert_chain[1]._password
 
-        some_context.load_cert_chain(cert_path, key_path, password)
+        context.load_cert_chain(cert_path, key_path, password)
 
-    # Set the cipher suites.
+    return context
+
+
+def _configure_context_for_ciphers(context, ciphers):
+    """
+    Given a PEP 543 cipher suite list, configure the SSLContext to use those
+    cipher suites.
+
+    Returns the context.
+    """
     ossl_names = [
-        _cipher_map[cipher] for cipher in config.ciphers
+        _cipher_map[cipher] for cipher in ciphers
         if cipher in _cipher_map
     ]
     if not ossl_names:
         raise TLSError("Unable to find any supported ciphers!")
-    some_context.set_ciphers(':'.join(ossl_names))
+    context.set_ciphers(':'.join(ossl_names))
+    return context
 
-    if config.inner_protocols:
+
+def _configure_context_for_negotiation(context, inner_protocols):
+    """
+    Given a PEP 543 list of protocols to negotiate, configures the SSLContext
+    to negotiate those protocols.
+    """
+    if inner_protocols:
         protocols = []
-        for np in config.inner_protocols:
+        for np in inner_protocols:
             proto_string = np if isinstance(np, bytes) else np.value
             protocols.append(proto_string)
 
         # If ALPN/NPN aren't supported, that's no problem.
         try:
-            some_context.set_alpn_protocols(protocols)
+            context.set_alpn_protocols(protocols)
         except NotImplementedError:
             pass
 
         try:
-            some_context.set_npn_protocols(protocols)
+            context.set_npn_protocols(protocols)
         except NotImplementedError:
             pass
 
+    return context
+
+
+def _init_context(config):
+    """
+    Initialize an ssl.SSLContext object with a given configuration.
+    """
+    some_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+    some_context.options |= ssl.OP_NO_COMPRESSION
+
+    some_context = _configure_context_for_validation(
+        some_context, config.validate_certificates, config.trust_store
+    )
+    some_context = _configure_context_for_certs(
+        some_context, config.certificate_chain
+    )
+    some_context = _configure_context_for_ciphers(
+        some_context, config.ciphers
+    )
+    some_context = _configure_context_for_negotiation(
+        some_context, config.inner_protocols
+    )
     some_context.options |= _version_options_from_version_range(
         config.lowest_supported_version,
         config.highest_supported_version,
     )
-
     # TODO: Add ServerNameCallback
     return some_context
 
