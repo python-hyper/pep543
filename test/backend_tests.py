@@ -52,6 +52,8 @@ def assert_configs_work(backend, client_config, server_config):
     Given a pair of configs (one for the client, and one for the server),
     creates contexts and buffers, performs a handshake, and then sends a bit of
     test data to confirm the connection is up.
+
+    Returns the client and server connection.
     """
     client_context = backend.client_context(client_config)
     server_context = backend.server_context(server_config)
@@ -60,6 +62,8 @@ def assert_configs_work(backend, client_config, server_config):
     client.write(b'hello world!')
     server.receive_from_network(client.peek_outgoing(8192))
     assert server.read(12) == b'hello world!'
+
+    return client, server
 
 
 class SimpleNegotiation(object):
@@ -150,3 +154,36 @@ class SimpleNegotiation(object):
             trust_store=trust_store,
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
+
+    def test_inner_protocol_overlap(self, client_cert, server_cert, ca_cert):
+        """
+        A Server and Client context, when both contexts support the same inner
+        protocols, either successfully negotiate an inner protocol or don't
+        negotiate anything.
+        """
+        server_certfile = self.BACKEND.certificate.from_file(
+            server_cert['cert']
+        )
+        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        client_certfile = self.BACKEND.certificate.from_file(
+            client_cert['cert']
+        )
+        client_keyfile = self.BACKEND.private_key.from_file(client_cert['key'])
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            certificate_chain=((client_certfile,), client_keyfile),
+            trust_store=trust_store,
+            inner_protocols=(pep543.NextProtocol.H2, pep543.NextProtocol.HTTP1)
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=((server_certfile,), server_keyfile),
+            trust_store=trust_store,
+            inner_protocols=(pep543.NextProtocol.H2, pep543.NextProtocol.HTTP1)
+        )
+        client, server = assert_configs_work(
+            self.BACKEND, client_config, server_config
+        )
+
+        assert client.negotiated_protocol() in (pep543.NextProtocol.H2, None)
+        assert server.negotiated_protocol() in (pep543.NextProtocol.H2, None)
