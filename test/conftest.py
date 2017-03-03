@@ -302,7 +302,6 @@ def build_leaf_certificate(dirname,
             critical=False
         )
 
-
     # Ok, sign the cert.
     certificate = builder.sign(
         private_key=ca_key, algorithm=hashes.SHA256(),
@@ -359,7 +358,7 @@ def cert_directory():
     server_san = x509.SubjectAlternativeName(
         [x509.DNSName(u'localhost')]
     )
-    client_data = build_leaf_certificate(
+    build_leaf_certificate(
         tempdir,
         'client.key',
         'client.crt',
@@ -368,7 +367,7 @@ def cert_directory():
         intermediate_data['cert'],
         intermediate_data['key']
     )
-    server_data = build_leaf_certificate(
+    build_leaf_certificate(
         tempdir,
         'server.key',
         'server.crt',
