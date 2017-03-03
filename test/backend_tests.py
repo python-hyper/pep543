@@ -47,6 +47,21 @@ def handshake_buffers(client, server, hostname=None):
     return client_buffer, server_buffer
 
 
+def assert_configs_work(backend, client_config, server_config):
+    """
+    Given a pair of configs (one for the client, and one for the server),
+    creates contexts and buffers, performs a handshake, and then sends a bit of
+    test data to confirm the connection is up.
+    """
+    client_context = backend.client_context(client_config)
+    server_context = backend.server_context(server_config)
+
+    client, server = handshake_buffers(client_context, server_context)
+    client.write(b'hello world!')
+    server.receive_from_network(client.peek_outgoing(8192))
+    assert server.read(12) == b'hello world!'
+
+
 class SimpleNegotiation(object):
     """
     These tests do simple TLS negotiation using various configurations.
@@ -66,10 +81,72 @@ class SimpleNegotiation(object):
             validate_certificates=False,
             certificate_chain=((cert,), key),
         )
-        client_context = self.BACKEND.client_context(client_config)
-        server_context = self.BACKEND.server_context(server_config)
+        assert_configs_work(self.BACKEND, client_config, server_config)
 
-        client, server = handshake_buffers(client_context, server_context)
-        client.write(b'hello world!')
-        server.receive_from_network(client.peek_outgoing(8192))
-        assert server.read(12) == b'hello world!'
+    def test_server_validation(self, server_cert, ca_cert):
+        """
+        A Server and Client context, where the Client context is set to
+        validate the server, and otherwise use the default configuration,
+        can handshake.
+        """
+        cert = self.BACKEND.certificate.from_file(server_cert['cert'])
+        key = self.BACKEND.private_key.from_file(server_cert['key'])
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(trust_store=trust_store)
+        server_config = pep543.TLSConfiguration(
+            validate_certificates=False,
+            certificate_chain=((cert,), key),
+        )
+        assert_configs_work(self.BACKEND, client_config, server_config)
+
+    def test_client_validation(self, client_cert, server_cert, ca_cert):
+        """
+        A Server and Client context, where the Server context is set to
+        validate the client, and the client does not validate, and the client
+        presents a cert chain, can handshake.
+        """
+        server_certfile = self.BACKEND.certificate.from_file(
+            server_cert['cert']
+        )
+        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        client_certfile = self.BACKEND.certificate.from_file(
+            client_cert['cert']
+        )
+        client_keyfile = self.BACKEND.private_key.from_file(client_cert['key'])
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            validate_certificates=False,
+            certificate_chain=((client_certfile,), client_keyfile),
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=((server_certfile,), server_keyfile),
+            trust_store=trust_store,
+        )
+        assert_configs_work(self.BACKEND, client_config, server_config)
+
+    def test_mutual_validation(self, client_cert, server_cert, ca_cert):
+        """
+        A Server and Client context, where each context is configured to verify
+        the other, can handshake.
+        """
+        server_certfile = self.BACKEND.certificate.from_file(
+            server_cert['cert']
+        )
+        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        client_certfile = self.BACKEND.certificate.from_file(
+            client_cert['cert']
+        )
+        client_keyfile = self.BACKEND.private_key.from_file(client_cert['key'])
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            certificate_chain=((client_certfile,), client_keyfile),
+            trust_store=trust_store,
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=((server_certfile,), server_keyfile),
+            trust_store=trust_store,
+        )
+        assert_configs_work(self.BACKEND, client_config, server_config)

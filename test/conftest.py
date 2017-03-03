@@ -399,6 +399,15 @@ def client_cert():
 def server_cert():
     """
     A fixture that returns a dictionary containing the cert and key for the
-    server
+    server.
     """
     return cert_and_key_by_name('server')
+
+
+@pytest.fixture
+def ca_cert():
+    """
+    A fixture that returns a dictionary containing the cert and key for the
+    CA.
+    """
+    return cert_and_key_by_name('ca')
