@@ -149,7 +149,9 @@ def _configure_context_for_negotiation(context, inner_protocols):
         protocols = []
         for np in inner_protocols:
             proto_string = np if isinstance(np, bytes) else np.value
-            protocols.append(proto_string)
+            # The protocol string needs to be of type str for the standard
+            # library.
+            protocols.append(proto_string.decode('ascii'))
 
         # If ALPN/NPN aren't supported, that's no problem.
         try:
@@ -255,6 +257,9 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
         proto = self._object.selected_alpn_protocol()
         if proto is None:
             proto = self._object.selected_npn_protocol()
+
+        # The standard library returns this as a str, we want bytes.
+        proto = proto.encode('ascii')
 
         try:
             return NextProtocol(proto)
