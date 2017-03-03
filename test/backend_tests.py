@@ -7,6 +7,8 @@ backend.
 """
 import pep543
 
+import pytest
+
 
 def handshake_buffers(client, server, hostname=None):
     """
@@ -155,7 +157,18 @@ class SimpleNegotiation(object):
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
 
-    def test_inner_protocol_overlap(self, client_cert, server_cert, ca_cert):
+    @pytest.mark.parametrize(
+        'inner_protocols,result', (
+            ((pep543.NextProtocol.H2, pep543.NextProtocol.HTTP1), pep543.NextProtocol.H2),
+            ((b'h2', b'http/1.1'), pep543.NextProtocol.H2),
+            ((b'myfavouriteproto',), b'myfavouriteproto'),
+        ))
+    def test_inner_protocol_overlap(self,
+                                    client_cert,
+                                    server_cert,
+                                    ca_cert,
+                                    inner_protocols,
+                                    result):
         """
         A Server and Client context, when both contexts support the same inner
         protocols, either successfully negotiate an inner protocol or don't
@@ -174,16 +187,16 @@ class SimpleNegotiation(object):
         client_config = pep543.TLSConfiguration(
             certificate_chain=((client_certfile,), client_keyfile),
             trust_store=trust_store,
-            inner_protocols=(pep543.NextProtocol.H2, pep543.NextProtocol.HTTP1)
+            inner_protocols=inner_protocols
         )
         server_config = pep543.TLSConfiguration(
             certificate_chain=((server_certfile,), server_keyfile),
             trust_store=trust_store,
-            inner_protocols=(pep543.NextProtocol.H2, pep543.NextProtocol.HTTP1)
+            inner_protocols=inner_protocols
         )
         client, server = assert_configs_work(
             self.BACKEND, client_config, server_config
         )
 
-        assert client.negotiated_protocol() in (pep543.NextProtocol.H2, None)
-        assert server.negotiated_protocol() in (pep543.NextProtocol.H2, None)
+        assert client.negotiated_protocol() in (result, None)
+        assert server.negotiated_protocol() in (result, None)
