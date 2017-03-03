@@ -18,7 +18,9 @@ from . import (
     TLSError,
     TLSVersion,
     TLSWrappedBuffer,
-    TrustStore
+    TrustStore,
+    WantReadError,
+    WantWriteError
 )
 
 
@@ -109,7 +111,7 @@ def _configure_context_for_certs(context, cert_chain):
         # locations. This requires being prepared to create temporary
         # files.
         assert len(cert_chain[0]) == 1
-        cert_path = cert_chain[0]._cert_path
+        cert_path = cert_chain[0][0]._cert_path
         key_path = None
         password = None
         if cert_chain:
@@ -223,7 +225,12 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
         return self._object.write(buf)
 
     def do_handshake(self):
-        return self._object.do_handshake()
+        try:
+            return self._object.do_handshake()
+        except ssl.SSLWantReadError:
+            raise WantReadError()
+        except ssl.SSLWantWriteError:
+            raise WantWriteError()
 
     def cipher(self):
         # This is the OpenSSL cipher name. We want the ID, which we can get by
@@ -270,7 +277,8 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
     def receive_from_network(self, data):
         # TODO: This method returns a length. Can it return short? What do we
         # do if it does?
-        self._in_bio.write(data)
+        written_len = self._in_bio.write(data)
+        assert written_len == len(data)
 
     def peek_outgoing(self, amt):
         # TODO: Evaluate this for what happens when it's called with no data.
