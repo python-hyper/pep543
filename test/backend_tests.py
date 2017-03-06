@@ -59,7 +59,7 @@ def loop_until_success(client, server, func):
             else:
                 client_complete = True
 
-        client_bytes = client.peek_outgoing(8192)
+        client_bytes = client.peek_outgoing(client.bytes_buffered())
         if client_bytes:
             server.receive_from_network(client_bytes)
             client.consume_outgoing(len(client_bytes))
@@ -72,7 +72,7 @@ def loop_until_success(client, server, func):
             else:
                 server_complete = True
 
-        server_bytes = server.peek_outgoing(8192)
+        server_bytes = server.peek_outgoing(server.bytes_buffered())
         if server_bytes:
             client.receive_from_network(server_bytes)
             server.consume_outgoing(len(server_bytes))
@@ -92,10 +92,7 @@ def write_until_read(writer, reader, message):
         else:
             message_written = True
 
-        # This times 5 nonsense is a hack to tolerate the fact that we can't
-        # check how much data is there. We should amend the PEP to allow us to
-        # ask that question.
-        written_data = writer.peek_outgoing(len(message) * 5)
+        written_data = writer.peek_outgoing(writer.bytes_buffered())
         writer.consume_outgoing(len(written_data))
         if written_data:
             reader.receive_from_network(written_data)
