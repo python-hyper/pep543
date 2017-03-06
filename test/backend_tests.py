@@ -78,11 +78,11 @@ def loop_until_success(client, server, func):
             server.consume_outgoing(len(server_bytes))
 
 
-def write_until_read(writer, reader, message):
+def write_until_complete(writer, reader, message):
     """
-    Writes a given message into the writer until the reader reads it.
+    Writes a given message via the writer and sends the bytes to the reader
+    until complete.
     """
-    # First, we need to write. This may require multiple calls to write.
     message_written = False
     while not message_written:
         try:
@@ -97,9 +97,13 @@ def write_until_read(writer, reader, message):
         if written_data:
             reader.receive_from_network(written_data)
 
-    # Ok, all the data is written and the remote peer should have received it
-    # all. We should now be able to read it. For the sake of detecting errors
-    # we'll ask to read *too much*.
+
+def write_until_read(writer, reader, message):
+    """
+    Writes a given message into the writer until the reader reads it.
+    """
+    write_until_complete(writer, reader, message)
+    # For the sake of detecting errors we'll ask to read *too much*.
     assert reader.read(len(message) * 2) == message
 
 
