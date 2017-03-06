@@ -10,42 +10,51 @@ import pep543
 import pytest
 
 
+def loop_until_success(client, server, func):
+    """
+    Given a function to call on a client and server, repeatedly loops over the
+    client and server and calls that function until they both stop erroring.
+    """
+    client_complete = server_complete = False
+    client_func = getattr(client, func)
+    server_func = getattr(server, func)
+
+    while not (client_complete and server_complete):
+        while not client_complete:
+            try:
+                client_func()
+            except (pep543.WantWriteError, pep543.WantReadError):
+                break
+            else:
+                client_complete = True
+
+        client_bytes = client.peek_outgoing(8192)
+        if client_bytes:
+            server.receive_from_network(client_bytes)
+            client.consume_outgoing(len(client_bytes))
+
+        while not server_complete:
+            try:
+                server_func()
+            except (pep543.WantWriteError, pep543.WantReadError):
+                break
+            else:
+                server_complete = True
+
+        server_bytes = server.peek_outgoing(8192)
+        if server_bytes:
+            client.receive_from_network(server_bytes)
+            server.consume_outgoing(len(server_bytes))
+
+
+
 def handshake_buffers(client, server, hostname=None):
     """
     Do a handshake in memory, getting back two buffer objects.
     """
     client_buffer = client.wrap_buffers(hostname)
     server_buffer = server.wrap_buffers()
-
-    client_complete = server_complete = False
-
-    while not (client_complete and server_complete):
-        while not client_complete:
-            try:
-                client_buffer.do_handshake()
-            except (pep543.WantWriteError, pep543.WantReadError):
-                break
-            else:
-                client_complete = True
-
-        client_bytes = client_buffer.peek_outgoing(8192)
-        if client_bytes:
-            server_buffer.receive_from_network(client_bytes)
-            client_buffer.consume_outgoing(len(client_bytes))
-
-        while not server_complete:
-            try:
-                server_buffer.do_handshake()
-            except (pep543.WantWriteError, pep543.WantReadError):
-                break
-            else:
-                server_complete = True
-
-        server_bytes = server_buffer.peek_outgoing(8192)
-        if server_bytes:
-            client_buffer.receive_from_network(server_bytes)
-            server_buffer.consume_outgoing(len(server_bytes))
-
+    loop_until_success(client_buffer, server_buffer, 'do_handshake')
     return client_buffer, server_buffer
 
 
