@@ -135,6 +135,16 @@ def assert_configs_work(backend, client_config, server_config):
     return client, server
 
 
+def cert_and_key_from_file(backend, cert_fixture):
+    """
+    Given a cert fixture, loads the cert and key from a file and returns a cert
+    chain object that can be used by PEP 543 TLSConfiguration objects.
+    """
+    cert = backend.certificate.from_file(cert_fixture['cert'])
+    key = backend.private_key.from_file(cert_fixture['key'])
+    return ((cert,), key)
+
+
 class SimpleNegotiation(object):
     """
     These tests do simple TLS negotiation using various configurations.
@@ -157,11 +167,10 @@ class SimpleNegotiation(object):
         A Server context initialized with a given configuration will return the
         configuration it was initialized with.
         """
-        cert = self.BACKEND.certificate.from_file(server_cert['cert'])
-        key = self.BACKEND.private_key.from_file(server_cert['key'])
+        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
         server_config = pep543.TLSConfiguration(
             validate_certificates=False,
-            certificate_chain=((cert,), key),
+            certificate_chain=cert_chain,
         )
         server_context = self.BACKEND.server_context(server_config)
 
@@ -172,13 +181,11 @@ class SimpleNegotiation(object):
         A Server and Client context that both have their validation settings
         disabled and otherwise use the default configuration can handshake.
         """
-        cert = self.BACKEND.certificate.from_file(server_cert['cert'])
-        key = self.BACKEND.private_key.from_file(server_cert['key'])
-
+        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
         client_config = pep543.TLSConfiguration(validate_certificates=False)
         server_config = pep543.TLSConfiguration(
             validate_certificates=False,
-            certificate_chain=((cert,), key),
+            certificate_chain=cert_chain,
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
 
@@ -188,14 +195,13 @@ class SimpleNegotiation(object):
         validate the server, and otherwise use the default configuration,
         can handshake.
         """
-        cert = self.BACKEND.certificate.from_file(server_cert['cert'])
-        key = self.BACKEND.private_key.from_file(server_cert['key'])
+        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(trust_store=trust_store)
         server_config = pep543.TLSConfiguration(
             validate_certificates=False,
-            certificate_chain=((cert,), key),
+            certificate_chain=cert_chain,
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
 
@@ -205,22 +211,16 @@ class SimpleNegotiation(object):
         validate the client, and the client does not validate, and the client
         presents a cert chain, can handshake.
         """
-        server_certfile = self.BACKEND.certificate.from_file(
-            server_cert['cert']
-        )
-        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
-        client_certfile = self.BACKEND.certificate.from_file(
-            client_cert['cert']
-        )
-        client_keyfile = self.BACKEND.private_key.from_file(client_cert['key'])
+        server_certchain = cert_and_key_from_file(self.BACKEND, server_cert)
+        client_certchain = cert_and_key_from_file(self.BACKEND, client_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
             validate_certificates=False,
-            certificate_chain=((client_certfile,), client_keyfile),
+            certificate_chain=client_certchain,
         )
         server_config = pep543.TLSConfiguration(
-            certificate_chain=((server_certfile,), server_keyfile),
+            certificate_chain=server_certchain,
             trust_store=trust_store,
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
@@ -230,22 +230,16 @@ class SimpleNegotiation(object):
         A Server and Client context, where each context is configured to verify
         the other, can handshake.
         """
-        server_certfile = self.BACKEND.certificate.from_file(
-            server_cert['cert']
-        )
-        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
-        client_certfile = self.BACKEND.certificate.from_file(
-            client_cert['cert']
-        )
-        client_keyfile = self.BACKEND.private_key.from_file(client_cert['key'])
+        server_certchain = cert_and_key_from_file(self.BACKEND, server_cert)
+        client_certchain = cert_and_key_from_file(self.BACKEND, client_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
-            certificate_chain=((client_certfile,), client_keyfile),
+            certificate_chain=client_certchain,
             trust_store=trust_store,
         )
         server_config = pep543.TLSConfiguration(
-            certificate_chain=((server_certfile,), server_keyfile),
+            certificate_chain=server_certchain,
             trust_store=trust_store,
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
@@ -267,23 +261,17 @@ class SimpleNegotiation(object):
         protocols, either successfully negotiate an inner protocol or don't
         negotiate anything.
         """
-        server_certfile = self.BACKEND.certificate.from_file(
-            server_cert['cert']
-        )
-        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
-        client_certfile = self.BACKEND.certificate.from_file(
-            client_cert['cert']
-        )
-        client_keyfile = self.BACKEND.private_key.from_file(client_cert['key'])
+        server_certchain = cert_and_key_from_file(self.BACKEND, server_cert)
+        client_certchain = cert_and_key_from_file(self.BACKEND, client_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
-            certificate_chain=((client_certfile,), client_keyfile),
+            certificate_chain=client_certchain,
             trust_store=trust_store,
             inner_protocols=inner_protocols
         )
         server_config = pep543.TLSConfiguration(
-            certificate_chain=((server_certfile,), server_keyfile),
+            certificate_chain=server_certchain,
             trust_store=trust_store,
             inner_protocols=inner_protocols
         )
@@ -299,17 +287,14 @@ class SimpleNegotiation(object):
         A Server and Client context that successfully handshake will report the
         same TLS version.
         """
-        server_certfile = self.BACKEND.certificate.from_file(
-            server_cert['cert']
-        )
-        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
             trust_store=trust_store
         )
         server_config = pep543.TLSConfiguration(
-            certificate_chain=((server_certfile,), server_keyfile),
+            certificate_chain=cert_chain,
             validate_certificates=False,
         )
         client, server = assert_configs_work(
@@ -327,17 +312,14 @@ class SimpleNegotiation(object):
         A Server and Client context that successfully handshake can succesfully
         perform a shutdown.
         """
-        server_certfile = self.BACKEND.certificate.from_file(
-            server_cert['cert']
-        )
-        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
             trust_store=trust_store
         )
         server_config = pep543.TLSConfiguration(
-            certificate_chain=((server_certfile,), server_keyfile),
+            certificate_chain=cert_chain,
             validate_certificates=False,
         )
         client, server = assert_configs_work(
@@ -370,17 +352,14 @@ class SimpleNegotiation(object):
         A Server and Client context that successfully handshake will report the
         same cipher.
         """
-        server_certfile = self.BACKEND.certificate.from_file(
-            server_cert['cert']
-        )
-        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
             trust_store=trust_store
         )
         server_config = pep543.TLSConfiguration(
-            certificate_chain=((server_certfile,), server_keyfile),
+            certificate_chain=cert_chain,
             validate_certificates=False,
         )
         client, server = assert_configs_work(
@@ -398,17 +377,14 @@ class SimpleNegotiation(object):
         A Server and Client context that successfully handshake can write
         bytes into buffers.
         """
-        server_certfile = self.BACKEND.certificate.from_file(
-            server_cert['cert']
-        )
-        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
             trust_store=trust_store
         )
         server_config = pep543.TLSConfiguration(
-            certificate_chain=((server_certfile,), server_keyfile),
+            certificate_chain=cert_chain,
             validate_certificates=False,
         )
         client, server = assert_configs_work(
