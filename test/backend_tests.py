@@ -366,3 +366,46 @@ class SimpleNegotiation(object):
         assert isinstance(client.cipher(), (pep543.CipherSuite, int))
         assert isinstance(server.cipher(), (pep543.CipherSuite, int))
         assert client.cipher() == server.cipher()
+
+    def test_readinto(self, server_cert, ca_cert):
+        """
+        A Server and Client context that successfully handshake can write
+        bytes into buffers.
+        """
+        server_certfile = self.BACKEND.certificate.from_file(
+            server_cert['cert']
+        )
+        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            trust_store=trust_store
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=((server_certfile,), server_keyfile),
+            validate_certificates=False,
+        )
+        client, server = assert_configs_work(
+            self.BACKEND, client_config, server_config
+        )
+
+        # Firstly, test that if we send some data to the server, we can use
+        # readinto to read it. We'll allocate a buffer that's too big and
+        # check that it gets filled.
+        message_size = len(HTTP_REQUEST)
+        test_buffer = bytearray(message_size * 2)
+        write_until_complete(client, server, HTTP_REQUEST)
+        read_length = server.readinto(test_buffer, message_size * 2)
+        assert read_length == message_size
+        assert test_buffer[:message_size] == HTTP_REQUEST
+
+        # Next, test that if we ask for more data than the buffer can hold we
+        # just get the amount that fills the buffer.
+        message_size = len(HTTP_RESPONSE)
+        test_buffer = bytearray(message_size // 2)
+        write_until_complete(server, client, HTTP_RESPONSE)
+        read_length = client.readinto(test_buffer, message_size * 2)
+        assert read_length == (message_size // 2)
+        assert (
+            test_buffer[:message_size // 2] == HTTP_RESPONSE[:message_size // 2]
+        )
