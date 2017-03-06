@@ -23,6 +23,8 @@ from . import (
     WantWriteError
 )
 
+from contextlib import contextmanager
+
 
 # We need all the various TLS options. We hard code this as their integer
 # values to deal with the fact that the symbolic constants are only exposed if
@@ -65,6 +67,24 @@ ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
 ctx.set_ciphers('ALL:COMPLEMENTOFALL')
 _cipher_map = {c['id'] & 0xffff: c['name'] for c in ctx.get_ciphers()}
 del ctx
+
+
+@contextmanager
+def _error_converter(ignore_filter=()):
+    """
+    Catches errors from the ssl module and wraps them up in TLSError
+    exceptions. Ignores certain kinds of exceptions as requested.
+    """
+    try:
+        yield
+    except ignore_filter:
+        raise
+    except ssl.SSLWantReadError:
+        raise WantReadError("Must read data")
+    except ssl.SSLWantWriteError:
+        raise WantWriteError("Must write data")
+    except ssl.SSLError as e:
+        raise TLSError(e)
 
 
 def _version_options_from_version_range(min, max):
@@ -219,26 +239,25 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
 
     def read(self, amt):
         try:
-            return self._object.read(amt)
+            with _error_converter(ignore_filter=ssl.SSLZeroReturnError):
+                return self._object.read(amt)
         except ssl.SSLZeroReturnError:
             return b''
 
     def readinto(self, buffer, amt):
         try:
-            return self._object.read(amt, buffer)
+            with _error_converter(ignore_filter=ssl.SSLZeroReturnError):
+                return self._object.read(amt, buffer)
         except ssl.SSLZeroReturnError:
             return 0
 
     def write(self, buf):
-        return self._object.write(buf)
+        with _error_converter():
+            return self._object.write(buf)
 
     def do_handshake(self):
-        try:
+        with _error_converter():
             return self._object.do_handshake()
-        except ssl.SSLWantReadError:
-            raise WantReadError()
-        except ssl.SSLWantWriteError:
-            raise WantWriteError()
 
     def cipher(self):
         # This is the OpenSSL cipher name. We want the ID, which we can get by
@@ -283,12 +302,8 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
         return TLSVersion(ossl_version)
 
     def shutdown(self):
-        try:
+        with _error_converter():
             return self._object.unwrap()
-        except ssl.SSLWantReadError:
-            raise WantReadError()
-        except ssl.SSLWantWriteError:
-            raise WantWriteError()
 
     def receive_from_network(self, data):
         # TODO: This method returns a length. Can it return short? What do we
