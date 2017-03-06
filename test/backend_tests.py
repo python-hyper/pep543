@@ -321,6 +321,14 @@ class SimpleNegotiation(object):
         assert not client.read(8192)
         assert not server.read(8192)
 
+        # We should also check that readinto returns EOF.
+        reference_buffer = bytearray(8192)
+        buffer = bytearray(8192)
+        assert not client.readinto(buffer, 8192)
+        assert buffer == reference_buffer
+        assert not server.readinto(buffer, 8192)
+        assert buffer == reference_buffer
+
         # And writes should raise errors.
         with pytest.raises(pep543.TLSError):
             client.write(b'will fail')
