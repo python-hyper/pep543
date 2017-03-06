@@ -127,6 +127,8 @@ def assert_configs_work(backend, client_config, server_config):
     client_context = backend.client_context(client_config)
     server_context = backend.server_context(server_config)
     client, server = handshake_buffers(client_context, server_context)
+    assert client.context is client_context
+    assert server.context is server_context
     write_until_read(client, server, HTTP_REQUEST)
     write_until_read(server, client, HTTP_RESPONSE)
     return client, server
