@@ -325,6 +325,9 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
     def consume_outgoing(self, amt):
         del self._ciphertext_buffer[:amt]
 
+    def bytes_buffered(self):
+        return self._out_bio.pending
+
 
 class OpenSSLClientContext(ClientContext):
     """
