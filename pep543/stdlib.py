@@ -5,7 +5,9 @@ Stdlib Shim
 
 This module shims the standard library OpenSSL module into the PEP 543 API.
 """
+import os
 import ssl
+import tempfile
 
 from . import (
     Backend,
@@ -376,13 +378,15 @@ class OpenSSLCertificate(Certificate):
     A handle to a certificate object, either on disk or in a buffer, that can
     be used for either server or client connectivity.
     """
-    def __init__(self, buffer=None, path=None):
-        self._cert_buffer = buffer
+    def __init__(self, path=None):
         self._cert_path = path
 
     @classmethod
     def from_buffer(cls, buffer):
-        return cls(buffer=buffer)
+        fd, path = tempfile.mkstemp()
+        with os.fdopen(fd, 'wb') as f:
+            f.write(buffer)
+        return cls(path=path)
 
     @classmethod
     def from_file(cls, path):
@@ -394,14 +398,16 @@ class OpenSSLPrivateKey(PrivateKey):
     A handle to a private key object, either on disk or in a buffer, that can
     be used along with a certificate for either server or client connectivity.
     """
-    def __init__(self, buffer=None, path=None, password=None):
-        self._key_buffer = buffer
+    def __init__(self, path=None, password=None):
         self._key_path = path
         self._password = password
 
     @classmethod
     def from_buffer(cls, buffer, password=None):
-        return cls(buffer=buffer, password=password)
+        fd, path = tempfile.mkstemp()
+        with os.fdopen(fd, 'wb') as f:
+            f.write(buffer)
+        return cls(path=path, password=password)
 
     @classmethod
     def from_file(cls, path, password=None):
