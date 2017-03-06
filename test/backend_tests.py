@@ -141,6 +141,32 @@ class SimpleNegotiation(object):
     """
     BACKEND = None
 
+    def test_client_context_returns_configuration(self, ca_cert):
+        """
+        A Client context initialized with a given configuration will return the
+        configuration it was initialized with.
+        """
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+        client_config = pep543.TLSConfiguration(trust_store=trust_store)
+        client_context = self.BACKEND.client_context(client_config)
+
+        assert client_context.configuration is client_config
+
+    def test_server_context_returns_configuration(self, server_cert):
+        """
+        A Server context initialized with a given configuration will return the
+        configuration it was initialized with.
+        """
+        cert = self.BACKEND.certificate.from_file(server_cert['cert'])
+        key = self.BACKEND.private_key.from_file(server_cert['key'])
+        server_config = pep543.TLSConfiguration(
+            validate_certificates=False,
+            certificate_chain=((cert,), key),
+        )
+        server_context = self.BACKEND.server_context(server_config)
+
+        assert server_context.configuration is server_config
+
     def test_no_validation(self, server_cert):
         """
         A Server and Client context that both have their validation settings
