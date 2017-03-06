@@ -47,7 +47,6 @@ def loop_until_success(client, server, func):
             server.consume_outgoing(len(server_bytes))
 
 
-
 def handshake_buffers(client, server, hostname=None):
     """
     Do a handshake in memory, getting back two buffer objects.
@@ -71,7 +70,9 @@ def assert_configs_work(backend, client_config, server_config):
 
     client, server = handshake_buffers(client_context, server_context)
     client.write(b'hello world!')
-    server.receive_from_network(client.peek_outgoing(8192))
+    client_data = client.peek_outgoing(8192)
+    client.consume_outgoing(len(client_data))
+    server.receive_from_network(client_data)
     assert server.read(12) == b'hello world!'
 
     return client, server
@@ -237,3 +238,32 @@ class SimpleNegotiation(object):
         assert (
             client.negotiated_tls_version() == server.negotiated_tls_version()
         )
+
+    def test_can_cleanly_shutdown(self, server_cert, ca_cert):
+        """
+        A Server and Client context that successfully handshake can succesfully
+        perform a shutdown.
+        """
+        server_certfile = self.BACKEND.certificate.from_file(
+            server_cert['cert']
+        )
+        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            trust_store=trust_store
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=((server_certfile,), server_keyfile),
+            validate_certificates=False,
+        )
+        client, server = assert_configs_work(
+            self.BACKEND, client_config, server_config
+        )
+
+        # We want to perform a shutdown now.
+        loop_until_success(client, server, 'shutdown')
+
+        # At this point, we should read EOF from both client and server.
+        assert not client.read(8192)
+        assert not server.read(8192)
