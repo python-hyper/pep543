@@ -218,10 +218,16 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
         )
 
     def read(self, amt):
-        return self._object.read(amt)
+        try:
+            return self._object.read(amt)
+        except ssl.SSLZeroReturnError:
+            return b''
 
     def readinto(self, buffer, amt):
-        return self._object.read(amt, buffer)
+        try:
+            return self._object.read(amt, buffer)
+        except ssl.SSLZeroReturnError:
+            return 0
 
     def write(self, buf):
         return self._object.write(buf)
@@ -277,7 +283,12 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
         return TLSVersion(ossl_version)
 
     def shutdown(self):
-        return self._object.unwrap()
+        try:
+            return self._object.unwrap()
+        except ssl.SSLWantReadError:
+            raise WantReadError()
+        except ssl.SSLWantWriteError:
+            raise WantWriteError()
 
     def receive_from_network(self, data):
         # TODO: This method returns a length. Can it return short? What do we
