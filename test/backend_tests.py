@@ -10,6 +10,37 @@ import pep543
 import pytest
 
 
+# Some non-trivial sample data to send through the connections to confirm that
+# they work.
+HTTP_REQUEST = (
+    b'GET /en/latest/ HTTP/1.1\r\n'
+    b'Host: hyper.readthedocs.io\r\n'
+    b'Connection: keep-alive\r\n'
+    b'Upgrade-Insecure-Requests: 1\r\n'
+    b'User-Agent: Mozilla/5.0\r\n'
+    b'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\n'
+    b'Accept-Encoding: gzip, deflate, sdch, br\r\n'
+    b'Accept-Language: en-US,en;q=0.8\r\n'
+    b'\r\n'
+)
+HTTP_RESPONSE = (
+    b'HTTP/1.1 200 OK\r\n'
+    b'Server: nginx/1.10.0 (Ubuntu)\r\n'
+    b'Date: Mon, 06 Mar 2017 12:35:18 GMT\r\n'
+    b'Content-Type: text/html\r\n'
+    b'Last-Modified: Sat, 08 Oct 2016 00:39:59 GMT\r\n'
+    b'Transfer-Encoding: chunked\r\n'
+    b'Connection: keep-alive\r\n'
+    b'Vary: Accept-Encoding\r\n'
+    b'ETag: W/"57f8405f-444d"\r\n'
+    b'X-Subdomain-TryFiles: True\r\n'
+    b'X-Served: Nginx\r\n'
+    b'X-Deity: web03\r\n'
+    b'Content-Encoding: gzip\r\n'
+    b'\r\n'
+)
+
+
 def loop_until_success(client, server, func):
     """
     Given a function to call on a client and server, repeatedly loops over the
@@ -96,7 +127,8 @@ def assert_configs_work(backend, client_config, server_config):
     client_context = backend.client_context(client_config)
     server_context = backend.server_context(server_config)
     client, server = handshake_buffers(client_context, server_context)
-    write_until_read(client, server, b'hello world!')
+    write_until_read(client, server, HTTP_REQUEST)
+    write_until_read(server, client, HTTP_RESPONSE)
     return client, server
 
 
