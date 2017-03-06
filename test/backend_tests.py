@@ -47,6 +47,34 @@ def loop_until_success(client, server, func):
             server.consume_outgoing(len(server_bytes))
 
 
+def write_until_read(writer, reader, message):
+    """
+    Writes a given message into the writer until the reader reads it.
+    """
+    # First, we need to write. This may require multiple calls to write.
+    message_written = False
+    while not message_written:
+        try:
+            writer.write(message)
+        except pep543.WantWriteError:
+            pass
+        else:
+            message_written = True
+
+        # This times 5 nonsense is a hack to tolerate the fact that we can't
+        # check how much data is there. We should amend the PEP to allow us to
+        # ask that question.
+        written_data = writer.peek_outgoing(len(message) * 5)
+        writer.consume_outgoing(len(written_data))
+        if written_data:
+            reader.receive_from_network(written_data)
+
+    # Ok, all the data is written and the remote peer should have received it
+    # all. We should now be able to read it. For the sake of detecting errors
+    # we'll ask to read *too much*.
+    assert reader.read(len(message) * 2) == message
+
+
 def handshake_buffers(client, server, hostname=None):
     """
     Do a handshake in memory, getting back two buffer objects.
@@ -67,14 +95,8 @@ def assert_configs_work(backend, client_config, server_config):
     """
     client_context = backend.client_context(client_config)
     server_context = backend.server_context(server_config)
-
     client, server = handshake_buffers(client_context, server_context)
-    client.write(b'hello world!')
-    client_data = client.peek_outgoing(8192)
-    client.consume_outgoing(len(client_data))
-    server.receive_from_network(client_data)
-    assert server.read(12) == b'hello world!'
-
+    write_until_read(client, server, b'hello world!')
     return client, server
 
 
