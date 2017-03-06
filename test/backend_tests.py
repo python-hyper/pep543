@@ -145,6 +145,21 @@ def cert_and_key_from_file(backend, cert_fixture):
     return ((cert,), key)
 
 
+def cert_and_key_from_buffers(backend, cert_fixture):
+    """
+    Given a cert fixture, loads the cert and key from a buffer and returns a
+    cert chain object that can be used by PEP 543 TLSConfiguration objects.
+    """
+    with open(cert_fixture['cert'], 'rb') as f:
+        cert = backend.certificate.from_buffer(f.read())
+    with open(cert_fixture['key'], 'rb') as f:
+        key = backend.private_key.from_buffer(f.read())
+    return ((cert,), key)
+
+
+CHAIN_LOADERS = (cert_and_key_from_file, cert_and_key_from_buffers)
+
+
 class SimpleNegotiation(object):
     """
     These tests do simple TLS negotiation using various configurations.
@@ -162,12 +177,15 @@ class SimpleNegotiation(object):
 
         assert client_context.configuration is client_config
 
-    def test_server_context_returns_configuration(self, server_cert):
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_server_context_returns_configuration(self,
+                                                  server_cert,
+                                                  load_chain):
         """
         A Server context initialized with a given configuration will return the
         configuration it was initialized with.
         """
-        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
+        cert_chain = load_chain(self.BACKEND, server_cert)
         server_config = pep543.TLSConfiguration(
             validate_certificates=False,
             certificate_chain=cert_chain,
@@ -176,12 +194,13 @@ class SimpleNegotiation(object):
 
         assert server_context.configuration is server_config
 
-    def test_no_validation(self, server_cert):
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_no_validation(self, server_cert, load_chain):
         """
         A Server and Client context that both have their validation settings
         disabled and otherwise use the default configuration can handshake.
         """
-        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
+        cert_chain = load_chain(self.BACKEND, server_cert)
         client_config = pep543.TLSConfiguration(validate_certificates=False)
         server_config = pep543.TLSConfiguration(
             validate_certificates=False,
@@ -189,13 +208,14 @@ class SimpleNegotiation(object):
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
 
-    def test_server_validation(self, server_cert, ca_cert):
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_server_validation(self, server_cert, ca_cert, load_chain):
         """
         A Server and Client context, where the Client context is set to
         validate the server, and otherwise use the default configuration,
         can handshake.
         """
-        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
+        cert_chain = load_chain(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(trust_store=trust_store)
@@ -205,14 +225,19 @@ class SimpleNegotiation(object):
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
 
-    def test_client_validation(self, client_cert, server_cert, ca_cert):
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_client_validation(self,
+                               client_cert,
+                               server_cert,
+                               ca_cert,
+                               load_chain):
         """
         A Server and Client context, where the Server context is set to
         validate the client, and the client does not validate, and the client
         presents a cert chain, can handshake.
         """
-        server_certchain = cert_and_key_from_file(self.BACKEND, server_cert)
-        client_certchain = cert_and_key_from_file(self.BACKEND, client_cert)
+        server_certchain = load_chain(self.BACKEND, server_cert)
+        client_certchain = load_chain(self.BACKEND, client_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
@@ -225,13 +250,18 @@ class SimpleNegotiation(object):
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
 
-    def test_mutual_validation(self, client_cert, server_cert, ca_cert):
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_mutual_validation(self,
+                               client_cert,
+                               server_cert,
+                               ca_cert,
+                               load_chain):
         """
         A Server and Client context, where each context is configured to verify
         the other, can handshake.
         """
-        server_certchain = cert_and_key_from_file(self.BACKEND, server_cert)
-        client_certchain = cert_and_key_from_file(self.BACKEND, client_cert)
+        server_certchain = load_chain(self.BACKEND, server_cert)
+        client_certchain = load_chain(self.BACKEND, client_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
@@ -244,6 +274,7 @@ class SimpleNegotiation(object):
         )
         assert_configs_work(self.BACKEND, client_config, server_config)
 
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
     @pytest.mark.parametrize(
         'inner_protocols,result', (
             ((pep543.NextProtocol.H2, pep543.NextProtocol.HTTP1), pep543.NextProtocol.H2),
@@ -255,14 +286,15 @@ class SimpleNegotiation(object):
                                     server_cert,
                                     ca_cert,
                                     inner_protocols,
-                                    result):
+                                    result,
+                                    load_chain):
         """
         A Server and Client context, when both contexts support the same inner
         protocols, either successfully negotiate an inner protocol or don't
         negotiate anything.
         """
-        server_certchain = cert_and_key_from_file(self.BACKEND, server_cert)
-        client_certchain = cert_and_key_from_file(self.BACKEND, client_cert)
+        server_certchain = load_chain(self.BACKEND, server_cert)
+        client_certchain = load_chain(self.BACKEND, client_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
@@ -282,12 +314,13 @@ class SimpleNegotiation(object):
         assert client.negotiated_protocol() in (result, None)
         assert server.negotiated_protocol() in (result, None)
 
-    def test_can_detect_tls_protocol(self, server_cert, ca_cert):
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_can_detect_tls_protocol(self, server_cert, ca_cert, load_chain):
         """
         A Server and Client context that successfully handshake will report the
         same TLS version.
         """
-        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
+        cert_chain = load_chain(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
@@ -307,12 +340,13 @@ class SimpleNegotiation(object):
             client.negotiated_tls_version() == server.negotiated_tls_version()
         )
 
-    def test_can_cleanly_shutdown(self, server_cert, ca_cert):
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_can_cleanly_shutdown(self, server_cert, ca_cert, load_chain):
         """
         A Server and Client context that successfully handshake can succesfully
         perform a shutdown.
         """
-        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
+        cert_chain = load_chain(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
@@ -347,12 +381,13 @@ class SimpleNegotiation(object):
         with pytest.raises(pep543.TLSError):
             server.write(b'will fail')
 
-    def test_can_detect_cipher(self, server_cert, ca_cert):
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_can_detect_cipher(self, server_cert, ca_cert, load_chain):
         """
         A Server and Client context that successfully handshake will report the
         same cipher.
         """
-        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
+        cert_chain = load_chain(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
@@ -372,12 +407,13 @@ class SimpleNegotiation(object):
         assert isinstance(server.cipher(), (pep543.CipherSuite, int))
         assert client.cipher() == server.cipher()
 
-    def test_readinto(self, server_cert, ca_cert):
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_readinto(self, server_cert, ca_cert, load_chain):
         """
         A Server and Client context that successfully handshake can write
         bytes into buffers.
         """
-        cert_chain = cert_and_key_from_file(self.BACKEND, server_cert)
+        cert_chain = load_chain(self.BACKEND, server_cert)
         trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
 
         client_config = pep543.TLSConfiguration(
