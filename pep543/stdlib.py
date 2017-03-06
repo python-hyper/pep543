@@ -80,11 +80,11 @@ def _error_converter(ignore_filter=()):
     except ignore_filter:
         raise
     except ssl.SSLWantReadError:
-        raise WantReadError("Must read data")
+        raise WantReadError("Must read data") from None
     except ssl.SSLWantWriteError:
-        raise WantWriteError("Must write data")
+        raise WantWriteError("Must write data") from None
     except ssl.SSLError as e:
-        raise TLSError(e)
+        raise TLSError(e) from None
 
 
 def _version_options_from_version_range(min, max):
