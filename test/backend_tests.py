@@ -326,3 +326,31 @@ class SimpleNegotiation(object):
             client.write(b'will fail')
         with pytest.raises(pep543.TLSError):
             server.write(b'will fail')
+
+    def test_can_detect_cipher(self, server_cert, ca_cert):
+        """
+        A Server and Client context that successfully handshake will report the
+        same cipher.
+        """
+        server_certfile = self.BACKEND.certificate.from_file(
+            server_cert['cert']
+        )
+        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            trust_store=trust_store
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=((server_certfile,), server_keyfile),
+            validate_certificates=False,
+        )
+        client, server = assert_configs_work(
+            self.BACKEND, client_config, server_config
+        )
+
+        # The cipher should be either a CipherSuite or an int, and should match
+        # the server.
+        assert isinstance(client.cipher(), (pep543.CipherSuite, int))
+        assert isinstance(server.cipher(), (pep543.CipherSuite, int))
+        assert client.cipher() == server.cipher()
