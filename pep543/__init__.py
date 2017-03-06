@@ -503,6 +503,12 @@ class TLSWrappedBuffer(object):
         signal that the data no longer needs to be buffered.
         """
 
+    @abstractmethod
+    def bytes_buffered(self):
+        """
+        Returns how many bytes are in the send buffer waiting to be sent.
+        """
+
 
 class TLSWrappedSocket(object):
     def do_handshake(self):
