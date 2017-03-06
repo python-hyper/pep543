@@ -200,3 +200,31 @@ class SimpleNegotiation(object):
 
         assert client.negotiated_protocol() in (result, None)
         assert server.negotiated_protocol() in (result, None)
+
+    def test_can_detect_tls_protocol(self, server_cert, ca_cert):
+        """
+        A Server and Client context that successfully handshake will report the
+        same TLS version.
+        """
+        server_certfile = self.BACKEND.certificate.from_file(
+            server_cert['cert']
+        )
+        server_keyfile = self.BACKEND.private_key.from_file(server_cert['key'])
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            trust_store=trust_store
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=((server_certfile,), server_keyfile),
+            validate_certificates=False,
+        )
+        client, server = assert_configs_work(
+            self.BACKEND, client_config, server_config
+        )
+
+        assert client.negotiated_tls_version() in pep543.TLSVersion
+        assert server.negotiated_tls_version() in pep543.TLSVersion
+        assert (
+            client.negotiated_tls_version() == server.negotiated_tls_version()
+        )
