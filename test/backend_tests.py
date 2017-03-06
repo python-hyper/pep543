@@ -321,3 +321,9 @@ class SimpleNegotiation(object):
         # At this point, we should read EOF from both client and server.
         assert not client.read(8192)
         assert not server.read(8192)
+
+        # And writes should raise errors.
+        with pytest.raises(pep543.TLSError):
+            client.write(b'will fail')
+        with pytest.raises(pep543.TLSError):
+            server.write(b'will fail')
