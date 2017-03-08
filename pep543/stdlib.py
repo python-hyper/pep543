@@ -136,7 +136,7 @@ def _configure_context_for_certs(context, cert_chain):
         cert_path = cert_chain[0][0]._cert_path
         key_path = None
         password = None
-        if cert_chain:
+        if cert_chain[1]:
             key_path = cert_chain[1]._key_path
             password = cert_chain[1]._password
 
