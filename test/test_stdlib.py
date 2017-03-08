@@ -16,17 +16,15 @@ CONTEXTS = (
  )
 
 
-def assert_wrap_fails(context, exception):
+def wrap_buffers(context):
     """
     A convenient helper that calls wrap_buffers with the appropriate number of
-    arugments and asserts that it raises the appropriate error.
+    arugments.
     """
     if isinstance(context, pep543.stdlib.STDLIB_BACKEND.client_context):
-        with pytest.raises(exception):
-            context.wrap_buffers(server_hostname=None)
+        context.wrap_buffers(server_hostname=None)
     else:
-        with pytest.raises(exception):
-            context.wrap_buffers()
+        context.wrap_buffers()
 
 
 class TestSimpleNegotiationStdlib(SimpleNegotiation):
@@ -55,4 +53,5 @@ class TestStdlibErrorHandling(object):
             highest_supported_version=highest
         )
         ctx = context(config)
-        assert_wrap_fails(ctx, pep543.TLSError)
+        with pytest.raises(pep543.TLSError):
+            wrap_buffers(ctx)
