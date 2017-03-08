@@ -56,6 +56,23 @@ class TestStdlibErrorHandling(object):
         with pytest.raises(pep543.TLSError):
             wrap_buffers(ctx)
 
+    @pytest.mark.parametrize('context', CONTEXTS)
+    def test_no_supported_cipher_suites(self, context):
+        """
+        Using TLSConfiguration objects that have only unsupporetd cipher suites
+        raises a TLSError.
+        """
+        # We assume that no cipher suite will be defined with the code eeee.
+        config = pep543.TLSConfiguration(
+            ciphers=[0xeeee],
+            trust_store=pep543.stdlib.STDLIB_BACKEND.trust_store.system()
+        )
+        ctx = context(config)
+        with pytest.raises(pep543.TLSError) as e:
+            wrap_buffers(ctx)
+
+        assert "supported ciphers" in str(e)
+
 
 class TestStdlibImplementation(object):
     """
