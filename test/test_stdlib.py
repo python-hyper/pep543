@@ -55,3 +55,33 @@ class TestStdlibErrorHandling(object):
         ctx = context(config)
         with pytest.raises(pep543.TLSError):
             wrap_buffers(ctx)
+
+
+class TestStdlibImplementation(object):
+    """
+    Tests that ensure that specific implementation details of the stdlib shim
+    work the way we want.
+    """
+    @pytest.mark.parametrize('context', CONTEXTS)
+    def test_system_trust_store_loads(self, monkeypatch, context):
+        """
+        When a context is instructed to load the system trust store, it calls
+        load_default_certs.
+        """
+        calls = 0
+
+        def load_default_certs(*args):
+            nonlocal calls
+            calls += 1
+
+        monkeypatch.setattr(
+            'ssl.SSLContext.load_default_certs', load_default_certs
+        )
+
+        config = pep543.TLSConfiguration(
+            trust_store=pep543.stdlib.STDLIB_BACKEND.trust_store.system()
+        )
+        ctx = context(config)
+        wrap_buffers(ctx)
+
+        assert calls == 1
