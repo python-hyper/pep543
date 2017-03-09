@@ -286,7 +286,8 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
             proto = self._object.selected_npn_protocol()
 
         # The standard library returns this as a str, we want bytes.
-        proto = proto.encode('ascii')
+        if proto is not None:
+            proto = proto.encode('ascii')
 
         try:
             return NextProtocol(proto)

@@ -22,9 +22,9 @@ def wrap_buffers(context):
     arguments.
     """
     if isinstance(context, pep543.stdlib.STDLIB_BACKEND.client_context):
-        context.wrap_buffers(server_hostname=None)
+        return context.wrap_buffers(server_hostname=None)
     else:
-        context.wrap_buffers()
+        return context.wrap_buffers()
 
 
 class TestSimpleNegotiationStdlib(SimpleNegotiation):
@@ -102,3 +102,119 @@ class TestStdlibImplementation(object):
         wrap_buffers(ctx)
 
         assert calls == 1
+
+
+class TestStdlibProtocolNegotiation(object):
+    """
+    Tests that validate the standard library's protocol negotiation semantics.
+    """
+    def assert_negotiated_protocol(self, context, negotiated_protocol):
+        """
+        Test that the protocol negotiated is as expected.
+        """
+        if negotiated_protocol is not None:
+            negotiated_protocol = pep543.NextProtocol(negotiated_protocol)
+
+        config = pep543.TLSConfiguration(
+            validate_certificates=False,
+            inner_protocols=(pep543.NextProtocol.H2,)
+        )
+        ctx = context(config)
+        buffer = wrap_buffers(ctx)
+        assert (buffer.negotiated_protocol() == negotiated_protocol)
+
+    @pytest.mark.parametrize('context', CONTEXTS)
+    def test_works_with_just_npn(self, monkeypatch, context):
+        """
+        If ALPN is not present, protocol negotiation will fall back to NPN.
+        """
+        negotiated_protocol = b'h2'
+
+        def notimplemented(*args):
+            raise NotImplementedError()
+
+        def ignored(*args):
+            pass
+
+        def negotiated(*args):
+            return negotiated_protocol.decode('utf-8')
+
+        monkeypatch.setattr(
+            'ssl.SSLContext.set_alpn_protocols', notimplemented
+        )
+        monkeypatch.setattr(
+            'ssl.SSLObject.selected_alpn_protocol', ignored
+        )
+        monkeypatch.setattr('ssl.SSLContext.set_npn_protocols', ignored)
+        monkeypatch.setattr('ssl.SSLObject.selected_npn_protocol', negotiated)
+
+        self.assert_negotiated_protocol(context, negotiated_protocol)
+
+    @pytest.mark.parametrize('context', CONTEXTS)
+    def test_works_with_just_alpn(self, monkeypatch, context):
+        """
+        If NPN is not present, protocol negotiation will just use ALPN.
+        """
+        negotiated_protocol = b'h2'
+
+        def notimplemented(*args):
+            raise NotImplementedError()
+
+        def ignored(*args):
+            pass
+
+        def negotiated(*args):
+            return negotiated_protocol.decode('utf-8')
+
+        monkeypatch.setattr('ssl.SSLContext.set_alpn_protocols', ignored)
+        monkeypatch.setattr(
+            'ssl.SSLObject.selected_alpn_protocol', negotiated
+        )
+        monkeypatch.setattr('ssl.SSLContext.set_npn_protocols', notimplemented)
+        monkeypatch.setattr('ssl.SSLObject.selected_npn_protocol', ignored)
+
+        self.assert_negotiated_protocol(context, negotiated_protocol)
+
+    @pytest.mark.parametrize('context', CONTEXTS)
+    def test_prefers_alpn(self, monkeypatch, context):
+        """
+        If both NPN and ALPN are present, ALPN is preferred to NPN.
+        """
+        negotiated_protocol = b'h2'
+
+        def ignored(*args):
+            pass
+
+        def negotiated(*args):
+            return negotiated_protocol.decode('utf-8')
+
+        def wrong(*args):
+            return b'this is not right'
+
+        monkeypatch.setattr('ssl.SSLContext.set_alpn_protocols', ignored)
+        monkeypatch.setattr(
+            'ssl.SSLObject.selected_alpn_protocol', negotiated
+        )
+        monkeypatch.setattr('ssl.SSLContext.set_npn_protocols', ignored)
+        monkeypatch.setattr('ssl.SSLObject.selected_npn_protocol', wrong)
+
+        self.assert_negotiated_protocol(context, negotiated_protocol)
+
+    @pytest.mark.parametrize('context', CONTEXTS)
+    def test_no_protocols(self, monkeypatch, context):
+        """
+        If neither NPN nor ALPN are present, no protocol is negotiated.
+        """
+        negotiated_protocol = None
+
+        def ignored(*args):
+            pass
+
+        monkeypatch.setattr('ssl.SSLContext.set_alpn_protocols', ignored)
+        monkeypatch.setattr(
+            'ssl.SSLObject.selected_alpn_protocol', ignored
+        )
+        monkeypatch.setattr('ssl.SSLContext.set_npn_protocols', ignored)
+        monkeypatch.setattr('ssl.SSLObject.selected_npn_protocol', ignored)
+
+        self.assert_negotiated_protocol(context, negotiated_protocol)
