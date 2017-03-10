@@ -341,6 +341,31 @@ class SimpleNegotiation(object):
         )
 
     @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_no_tls_protocol_before_handhake(self, server_cert, ca_cert, load_chain):
+        """
+        Before the TLS handshake is done, no TLS protocols is available.
+        """
+        cert_chain = load_chain(self.BACKEND, server_cert)
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            trust_store=trust_store
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=cert_chain,
+            validate_certificates=False,
+        )
+        client_context = self.BACKEND.client_context(client_config)
+        server_context = self.BACKEND.server_context(server_config)
+
+        client_buffer = client_context.wrap_buffers(None)
+        server_buffer = server_context.wrap_buffers()
+
+        print(client_buffer.negotiated_tls_version())
+        assert client_buffer.negotiated_tls_version() is None
+        assert server_buffer.negotiated_tls_version() is None
+
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
     def test_can_cleanly_shutdown(self, server_cert, ca_cert, load_chain):
         """
         A Server and Client context that successfully handshake can succesfully

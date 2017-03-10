@@ -239,6 +239,11 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
             server_hostname=server_hostname
         )
 
+        # We need to track whether the connection is established to properly
+        # report the TLS version. This is to work around a Python bug:
+        # https://bugs.python.org/issue29781
+        self._connection_established = False
+
     def read(self, amt):
         try:
             with _error_converter(ignore_filter=ssl.SSLZeroReturnError):
@@ -259,7 +264,10 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
 
     def do_handshake(self):
         with _error_converter():
-            return self._object.do_handshake()
+            rc = self._object.do_handshake()
+
+        self._connection_established = True
+        return rc
 
     def cipher(self):
         # This is the OpenSSL cipher name. We want the ID, which we can get by
@@ -299,14 +307,18 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
         return self._parent_context
 
     def negotiated_tls_version(self):
-        ossl_version = self._object.version()
-        if ossl_version is None:
+        if not self._connection_established:
             return None
+
+        ossl_version = self._object.version()
         return TLSVersion(ossl_version)
 
     def shutdown(self):
         with _error_converter():
-            return self._object.unwrap()
+            rc = self._object.unwrap()
+
+        self._connection_established = False
+        return rc
 
     def receive_from_network(self, data):
         # TODO: This method returns a length. Can it return short? What do we
