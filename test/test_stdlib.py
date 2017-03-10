@@ -106,7 +106,7 @@ class TestStdlibImplementation(object):
     @pytest.mark.parametrize('context', CONTEXTS)
     def test_unknown_cipher_suites(self, monkeypatch, context):
         """
-        When a cipher suite returns a cipher that doesn't appear to be
+        When a buffer object returns a cipher that doesn't appear to be
         suppported by the given OpenSSL implementation, a TLSError is raised.
         """
         def unknown_cipher(*args):
@@ -122,6 +122,36 @@ class TestStdlibImplementation(object):
 
         with pytest.raises(pep543.TLSError):
             buffer.cipher()
+
+    @pytest.mark.parametrize('context', CONTEXTS)
+    def test_cipher_suite_not_in_enum(self, monkeypatch, context):
+        """
+        When a buffer object returns a cipher that is not in the PEP543
+        CipherSuite enum object, it returns the cipher suite ID instead.
+        """
+        # We try this with the cipher suite NULL-MD5. This may not work on all
+        # OpenSSL versions, so if this test breaks investigate and maybe change
+        # to a different one.
+        EXTRA_CIPHER_ID = 0x0001
+        EXTRA_CIPHER_NAME = 'NULL-MD5'
+
+        def md5_cipher(*args):
+            return (EXTRA_CIPHER_NAME, None, None)
+
+        monkeypatch.setattr('ssl.SSLObject.cipher', md5_cipher)
+
+        cipher_list = pep543.DEFAULT_CIPHER_LIST + [EXTRA_CIPHER_ID]
+
+        config = pep543.TLSConfiguration(
+            trust_store=pep543.stdlib.STDLIB_BACKEND.trust_store.system(),
+            ciphers=cipher_list
+        )
+        ctx = context(config)
+        buffer = wrap_buffers(ctx)
+
+        suite = buffer.cipher()
+        assert not isinstance(suite, pep543.CipherSuite)
+        assert suite == EXTRA_CIPHER_ID
 
 
 class TestStdlibProtocolNegotiation(object):
