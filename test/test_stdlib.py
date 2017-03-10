@@ -103,6 +103,26 @@ class TestStdlibImplementation(object):
 
         assert calls == 1
 
+    @pytest.mark.parametrize('context', CONTEXTS)
+    def test_unknown_cipher_suites(self, monkeypatch, context):
+        """
+        When a cipher suite returns a cipher that doesn't appear to be
+        suppported by the given OpenSSL implementation, a TLSError is raised.
+        """
+        def unknown_cipher(*args):
+            return ('not_a_tls_cipher_suite', None, None)
+
+        monkeypatch.setattr('ssl.SSLObject.cipher', unknown_cipher)
+
+        config = pep543.TLSConfiguration(
+            trust_store=pep543.stdlib.STDLIB_BACKEND.trust_store.system()
+        )
+        ctx = context(config)
+        buffer = wrap_buffers(ctx)
+
+        with pytest.raises(pep543.TLSError):
+            buffer.cipher()
+
 
 class TestStdlibProtocolNegotiation(object):
     """

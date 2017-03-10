@@ -272,7 +272,7 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
             if cipher['name'] == ossl_cipher:
                 break
         else:
-            return None
+            raise TLSError("Unable to identify cipher suite")
 
         cipher_id = cipher['id'] & 0xffff
         try:
