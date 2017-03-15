@@ -2,8 +2,12 @@
 """
 Abstract interface to TLS for Python
 """
+import selectors
+
 from abc import ABCMeta, abstractmethod, abstractproperty
 from enum import Enum, IntEnum
+
+from .utils import _Deadline
 
 __all__ = [
     'TLSConfiguration', 'ClientContext', 'ServerContext', 'TLSWrappedBuffer',
@@ -511,6 +515,89 @@ class TLSWrappedBuffer(object):
 
 
 class TLSWrappedSocket(object):
+    """
+    A wrapped socket implementation that uses the TLSWrappedBuffer to provide
+    a TLS wrapper around a low-level OS socket. Unlike the legacy ssl module,
+    this class composes in a socket, rather than inheriting from one, so it
+    does not pass isinstance() checks. However, it provides a much simpler and
+    easier to test model of socket wrapping.
+    """
+    def __init__(self, socket, buffer):
+        self.__dict__['_socket'] = socket
+        self.__dict__['_buffer'] = buffer
+        self.__dict__['_timeout'] = socket.gettimeout()
+
+        # We are setting the socket timeout to zero here, regardless of what it
+        # was before, because we want to operate the socket in non-blocking
+        # mode. This requires some context.
+        #
+        # Python sockets have three modes: blocking, non-blocking, and timeout.
+        # However, "real" (OS-level) sockets only have two: blocking and
+        # non-blocking. Internally, Python builds sockets with timeouts by
+        # using the select syscall to implement the timeout.
+        #
+        # We would also like to use select (and friends) in this wrapped
+        # socket, so that we can ensure that timeouts apply per
+        # ``send``/``recv`` call, as they do with normal Python sockets.
+        # However, if we did that without setting the socket timeout to zero
+        # we'd end up with *two* selectors for each socket: one used in this
+        # class, and one used in the socket. That's gloriously silly. So
+        # instead we take responsibility for managing the socket timeout
+        # ourselves.
+        socket.settimeout(0)
+
+    def _do_read(self, selector, deadline):
+        """
+        A helper method that performs a read from the network and passes the
+        data into the receive buffer.
+        """
+        selector.modify(self._socket, selectors.EVENT_READ)
+        results = selector.select(deadline.remaining_time())
+
+        if not results:
+            # TODO: Is there a better way we can throw this?
+            raise BlockingIOError()
+
+        assert len(results) == 1
+        assert results[0][1] == selectors.EVENT_READ
+
+        # TODO: This can still technically EAGAIN. We need to resolve that.
+        data = self._socket.recv(8192)
+        if not data:
+            return 0
+        self._buffer.receive_bytes_from_network(data)
+        return len(data)
+
+    def _do_write(self, selector, deadline):
+        """
+        A helper method that attempts to write all of the data from the send
+        buffer to the network. This may make multiple I/O calls, but will not
+        spend longer than the deadline allows.
+        """
+        selector.modify(self._socket, selectors.EVENT_WRITE)
+
+        total_sent = 0
+        while True:
+            data = self._buffer.peek_bytes(8192)
+            if not data:
+                break
+
+            results = selector.select(deadline.remaining_time())
+
+            if not results:
+                # TODO: Is there a better way we can throw this?
+                raise BlockingIOError()
+
+            assert len(results) == 1
+            assert results[0][1] == selectors.EVENT_WRITE
+
+            # TODO: This can still technically EAGAIN. We need to resolve that.
+            sent = self._socket.send(data)
+            self._buffer.consume_bytes(sent)
+            total_sent += sent
+
+        return total_sent
+
     def do_handshake(self):
         """
         Performs the TLS handshake. Also performs certificate validation
@@ -518,6 +605,23 @@ class TLSWrappedSocket(object):
         connected (either via ``connect`` or ``accept``), before any other
         operation is performed on the socket.
         """
+        with selectors.DefaultSelector() as sel, _Deadline(self._timeout) as deadline:
+            sel.register(self._socket, selectors.EVENT_READ)
+            while True:
+                try:
+                    self._buffer.do_handshake()
+                except WantReadError:
+                    # TODO: How do we make sure that WantReadError doesn't
+                    # require us to write before we can possibly read?
+                    bytes_read = self._do_read(sel, deadline)
+
+                    if not bytes_read:
+                        raise TLSError("Unexpected EOF during handshake")
+                except WantWriteError:
+                    self._do_write(sel, deadline)
+                else:
+                    # Handshake complete!
+                    break
 
     def cipher(self):
         """
@@ -527,6 +631,7 @@ class TLSWrappedSocket(object):
         CipherSuite, returns the 16-bit integer representing that cipher
         directly.
         """
+        return self._buffer.cipher()
 
     def negotiated_protocol(self):
         """
@@ -544,17 +649,21 @@ class TLSWrappedSocket(object):
         not support any of the peer's proposed protocols, or if the
         handshake has not happened yet, ``None`` is returned.
         """
+        return self._buffer.negotiated_protocol()
 
     @property
     def context(self):
         """
         The ``Context`` object this socket is tied to.
         """
+        return self._buffer.context
 
+    @property
     def negotiated_tls_version(self):
         """
         The version of TLS that has been negotiated on this connection.
         """
+        return self._buffer.negotiated_tls_version
 
     def unwrap(self):
         """
@@ -562,6 +671,125 @@ class TLSWrappedSocket(object):
         called, this ``TLSWrappedSocket`` can no longer be used to transmit
         data. Returns the socket that was wrapped with TLS.
         """
+        if self._socket is None:
+            return None
+
+        self._buffer.shutdown()
+
+        # TODO: So, does unwrap make any sense here? How do we make sure we
+        # read up to close_notify, but no further?
+        with selectors.DefaultSelector() as sel, _Deadline(self._timeout) as deadline:
+            sel.register(self._socket, selectors.EVENT_WRITE)
+            while True:
+                try:
+                    written = self._do_write(sel, deadline)
+                except ConnectionError:
+                    # The socket is not able to tolerate sending, so we're done
+                    # here.
+                    break
+                else:
+                    if not written:
+                        break
+
+        return self._socket
+
+    def close(self):
+        # TODO: we need to do better here with CLOSE_NOTIFY. In particular, we
+        # need a way to do a graceful connection shutdown that produces data
+        # until the remote party has done CLOSE_NOTIFY.
+        self.unwrap()
+        self._socket.close()
+
+        # We lose our reference to our socket here so that we can do some
+        # short-circuit evaluation elsewhere.
+        self.__dict__['_socket'] = None
+
+    def recv(self, bufsize, flags=0):
+        # This method loops in order for blocking sockets to behave correctly
+        # when drip-fed data.
+        with selectors.DefaultSelector() as sel, _Deadline(self._timeout) as deadline:
+            sel.register(self._socket, selectors.EVENT_READ)
+            while True:
+                # This check is inside the loop because of the possibility that
+                # side-effects triggered elsewhere in the loop body could cause
+                # a closure.
+                if self._socket is None:
+                    return b''
+
+                # TODO: This must also tolerate WantWriteError. Probably that
+                # will allow us to unify our code with do_handhake and send.
+                try:
+                    return self._buffer.read(bufsize)
+                except WantReadError:
+                    self._do_read(sel, deadline)
+
+    def recv_into(self, buffer, nbytes=None, flags=0):
+        read_size = nbytes or len(buffer)
+        data = self.read(read_size, flags)
+        buffer[:len(data)] = data
+        return len(data)
+
+    def send(self, data, flags=0):
+        # TODO: This must also tolerate WantReadError. Probably that will allow
+        # us to unify our code with do_handhake and recv.
+        try:
+            self._buffer.write(data)
+        except WantWriteError:
+            # TODO: Ok, so this is a fun problem. Let's talk about it.
+            #
+            # If we make the rule that the socket will always drain the send
+            # buffer when sending data (a good plan, and one that matches the
+            # behaviour of the legacy ``ssl`` module), then the only way
+            # WantWriteError can occur is if the amount of data to be written
+            # is larger than the write buffer in the buffer object.
+            # Now OpenSSL tolerates this by basically saying that if this
+            # happens, you need to drain the write buffer, and then to call
+            # "SSL_write" again with the exact same buffer, and it'll just
+            # continue from where it was.
+            #
+            # This is a pretty stupid behaviour, but it's do-able. The bigger
+            # problem is that, while we could in principle change it (e.g. by
+            # having WantWriteError indicate how many bytes were consumed),
+            # making that change will require that OpenSSL implementations
+            # bend over backwards to work around their requirement to reuse the
+            # same buffer.
+            #
+            # All of this is wholly gross, and I haven't really decided how I
+            # want to proceed with it, but we do need to decide how we want to
+            # handle it before we can move forward.
+
+            # TODO: Another relevant reference for us is this comment from the
+            # curl codebase: https://github.com/curl/curl/blob/807698db025f489dd7894f1195e4983be632bee2/lib/vtls/darwinssl.c#L2477-L2489
+            pass
+
+        with selectors.DefaultSelector() as sel, _Deadline(self._timeout) as deadline:
+            sel.register(self._socket, selectors.EVENT_WRITE)
+            sent = self._do_write(sel, deadline)
+        return sent
+
+    def sendall(self, bytes, flags=0):
+        # TODO: Does this obey timeout in the stdlib?
+        send_buffer = memoryview(bytes)
+        while send_buffer:
+            sent = self.send(send_buffer, flags)
+            send_buffer = send_buffer[sent:]
+
+        return
+
+    def makefile(self, mode='r', buffering=None, *, encoding=None, errors=None, newline=None):
+        pass
+
+    def settimeout(self, timeout):
+        self.__dict__['_timeout'] = timeout
+
+    def gettimeout(self):
+        return self._timeout
+
+    def __getattr__(self, attribute):
+        return getattr(self._socket, attribute)
+
+    def __setattr__(self, attribute, value):
+        return setattr(self._socket, attribute, value)
 
 
 class CipherSuite(IntEnum):
