@@ -16,8 +16,6 @@ __all__ = [
 _DEFAULT_VALUE = object()
 
 
-
-
 class TLSConfiguration(object):
     """
     An immutable TLS Configuration object. This object has the following
@@ -103,14 +101,15 @@ class TLSConfiguration(object):
         '_highest_supported_version', '_trust_store', '_sni_callback'
     )
 
-    def __init__(self, validate_certificates=None,
-                       certificate_chain=None,
-                       ciphers=None,
-                       inner_protocols=None,
-                       lowest_supported_version=None,
-                       highest_supported_version=None,
-                       trust_store=None,
-                       sni_callback=None):
+    def __init__(self,
+                 validate_certificates=None,
+                 certificate_chain=None,
+                 ciphers=None,
+                 inner_protocols=None,
+                 lowest_supported_version=None,
+                 highest_supported_version=None,
+                 trust_store=None,
+                 sni_callback=None):
 
         if validate_certificates is None:
             validate_certificates = True
@@ -136,14 +135,15 @@ class TLSConfiguration(object):
         self._trust_store = trust_store
         self._sni_callback = sni_callback
 
-    def update(self, validate_certificates=_DEFAULT_VALUE,
-                     certificate_chain=_DEFAULT_VALUE,
-                     ciphers=_DEFAULT_VALUE,
-                     inner_protocols=_DEFAULT_VALUE,
-                     lowest_supported_version=_DEFAULT_VALUE,
-                     highest_supported_version=_DEFAULT_VALUE,
-                     trust_store=_DEFAULT_VALUE,
-                     sni_callback=_DEFAULT_VALUE):
+    def update(self,
+               validate_certificates=_DEFAULT_VALUE,
+               certificate_chain=_DEFAULT_VALUE,
+               ciphers=_DEFAULT_VALUE,
+               inner_protocols=_DEFAULT_VALUE,
+               lowest_supported_version=_DEFAULT_VALUE,
+               highest_supported_version=_DEFAULT_VALUE,
+               trust_store=_DEFAULT_VALUE,
+               sni_callback=_DEFAULT_VALUE):
         """
         Create a new ``TLSConfiguration``, overriding some of the settings
         on the original configuration with the new settings.
@@ -503,6 +503,12 @@ class TLSWrappedBuffer(object):
         signal that the data no longer needs to be buffered.
         """
 
+    @abstractmethod
+    def bytes_buffered(self):
+        """
+        Returns how many bytes are in the send buffer waiting to be sent.
+        """
+
 
 class TLSWrappedSocket(object):
     def do_handshake(self):
@@ -738,9 +744,9 @@ class TLSVersion(Enum):
     SSLv2 = 'SSLv2'
     SSLv3 = 'SSLv3'
     TLSv1 = 'TLSv1'
-    TLSv1_1 = 'TLSv1_1'
-    TLSv1_2 = 'TLSv1_2'
-    TLSv1_3 = 'TLSv1_3'
+    TLSv1_1 = 'TLSv1.1'
+    TLSv1_2 = 'TLSv1.2'
+    TLSv1_3 = 'TLSv1.3'
     MAXIMUM_SUPPORTED = 'MAXIMUM_SUPPORTED'
 
 
@@ -750,6 +756,7 @@ class TLSError(Exception):
     Catching this error should be sufficient to catch *all* TLS errors,
     regardless of what backend is used.
     """
+
 
 class WantWriteError(TLSError):
     """
@@ -763,6 +770,7 @@ class WantWriteError(TLSError):
     not be raised.
     """
 
+
 class WantReadError(TLSError):
     """
     A special signaling exception used only when non-blocking or
@@ -774,6 +782,7 @@ class WantReadError(TLSError):
     write any data. If a partial write is achievable then this should not
     be raised.
     """
+
 
 class RaggedEOF(TLSError):
     """
@@ -822,7 +831,7 @@ class Certificate(object):
 
 class PrivateKey(object):
     @classmethod
-    def from_buffer(cls, buffer, password):
+    def from_buffer(cls, buffer, password=None):
         """
         Creates a PrivateKey object from a byte buffer. This byte buffer
         may be either PEM-encoded or DER-encoded. If the buffer is PEM
@@ -845,7 +854,7 @@ class PrivateKey(object):
         raise NotImplementedError("Private Keys from buffers not supported")
 
     @classmethod
-    def from_file(cls, path, password):
+    def from_file(cls, path, password=None):
         """
         Creates a PrivateKey object from a file on disk. This method may
         be a convenience method that wraps ``open`` and ``from_buffer``,
@@ -888,11 +897,12 @@ class Backend(object):
         '_private_key', '_trust_store'
     )
 
-    def __init__(self, client_context,
-                       server_context,
-                       certificate,
-                       private_key,
-                       trust_store):
+    def __init__(self,
+                 client_context,
+                 server_context,
+                 certificate,
+                 private_key,
+                 trust_store):
         self._client_context = client_context
         self._server_context = server_context
         self._certificate = certificate

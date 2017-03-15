@@ -1,0 +1,12 @@
+[run]
+branch = True
+source = pep543
+
+[report]
+show_missing = True
+
+[paths]
+source =
+    pep543/
+    .tox/*/lib/python*/site-packages/pep543
+    .tox/pypy*/site-packages/pep543
