@@ -3,6 +3,7 @@
 Abstract interface to TLS for Python
 """
 import selectors
+import socket
 
 from abc import ABCMeta, abstractmethod, abstractproperty
 from enum import Enum, IntEnum
@@ -525,6 +526,8 @@ class TLSWrappedSocket(object):
     def __init__(self, socket, buffer):
         self.__dict__['_socket'] = socket
         self.__dict__['_buffer'] = buffer
+        self.__dict__['_io_refs'] = 0
+        self.__dict__['_closed'] = False
         self.__dict__['_timeout'] = socket.gettimeout()
 
         # We are setting the socket timeout to zero here, regardless of what it
@@ -694,15 +697,53 @@ class TLSWrappedSocket(object):
         return self._socket
 
     def close(self):
-        # TODO: we need to do better here with CLOSE_NOTIFY. In particular, we
-        # need a way to do a graceful connection shutdown that produces data
-        # until the remote party has done CLOSE_NOTIFY.
-        self.unwrap()
-        self._socket.close()
+        self._closed = True
+        if self._io_refs <= 0:
+            # TODO: we need to do better here with CLOSE_NOTIFY. In particular,
+            # we need a way to do a graceful connection shutdown that produces
+            # data until the remote party has done CLOSE_NOTIFY.
+            self.unwrap()
+            self._socket.close()
 
-        # We lose our reference to our socket here so that we can do some
-        # short-circuit evaluation elsewhere.
+            # We lose our reference to our socket here so that we can do some
+            # short-circuit evaluation elsewhere.
+            self.__dict__['_socket'] = None
+
+    def accept(self):
+        # The change between this object and the regular socket is that the
+        # returned socket is automatically of type TLSWrappedSocket. It is
+        # wrapped using the parent context. We do not auto-handshake.
+        # We don't need a deadline here because there is only ever one call.
+        with selectors.DefaultSelector() as sel:
+            sel.register(self._socket, selectors.EVENT_READ)
+            results = sel.select(self._timeout)
+            if not results:
+                raise BlockingIOError()
+
+        new_sock, addr = self._socket.accept()
+        parent_context = self._buffer.context
+        tls_sock = parent_context.wrap_socket(new_sock)
+
+        # Here's a fun story: because Python is weird about timeouts, we want
+        # to propagate whatever timeout is set on us onto the new socket.
+        tls_sock.settimeout(self.gettimeout())
+        return (tls_sock, addr)
+
+    def detach(self):
+        # Puts the socket object into a closed state without closing the
+        # underlying FD.
+        self._closed = True
+        self.unwrap()
+        rval = self._socket.detach()
+
+        # We lose our reference to the socket here.
         self.__dict__['_socket'] = None
+        return rval
+
+    def dup(self):
+        raise TypeError(
+            "Duplicating wrapped TLS sockets is an undefined operation"
+        )
 
     def recv(self, bufsize, flags=0):
         # This method loops in order for blocking sockets to behave correctly
@@ -723,11 +764,27 @@ class TLSWrappedSocket(object):
                 except WantReadError:
                     self._do_read(sel, deadline)
 
+    def recvfrom(self, bufsize, flags=0):
+        # TODO: implement
+        pass
+
+    def recvmsg(self, bufsize, ancbufsize=0, flags=0):
+        # TODO: implement
+        pass
+
     def recv_into(self, buffer, nbytes=None, flags=0):
         read_size = nbytes or len(buffer)
         data = self.read(read_size, flags)
         buffer[:len(data)] = data
         return len(data)
+
+    def recvfrom_into(self, buffer, nbytes=None, flags=0):
+        # TODO: implement
+        pass
+
+    def recvmsg_into(self, buffers, ancbufsize=0, flags=0):
+        # TODO: implement
+        pass
 
     def send(self, data, flags=0):
         # TODO: This must also tolerate WantReadError. Probably that will allow
@@ -768,7 +825,7 @@ class TLSWrappedSocket(object):
         return sent
 
     def sendall(self, bytes, flags=0):
-        # TODO: Does this obey timeout in the stdlib?
+        # TODO: Have this apply a top-level deadline.
         send_buffer = memoryview(bytes)
         while send_buffer:
             sent = self.send(send_buffer, flags)
@@ -776,14 +833,49 @@ class TLSWrappedSocket(object):
 
         return
 
-    def makefile(self, mode='r', buffering=None, *, encoding=None, errors=None, newline=None):
+    def sendto(self, *args):
+        # TODO: So, maybe this error message should be better. But seriously,
+        # there is absolutely no reason to allow this function call to work on
+        # a SOCK_STREAM socket, and it behaves idiotically when you do.
+        raise TypeError("sendto is stupid on SOCK_STREAM sockets, don't do it")
+
+    def sendmsg(self, buffers, ancdata=None, flags=0, address=None):
+        # TODO: implement.
         pass
+
+    def sendfile(self, file, offset=0, count=None):
+        # TODO: implement, presumably by using a fallback? What does CPython
+        # do?
+        pass
+
+    def shutdown(self, how):
+        # TODO: implement
+        pass
+
+    def makefile(self, mode='r', buffering=None, *, encoding=None, errors=None, newline=None):
+        # TODO: Ok, so this is an interesting one. How do we make this work?
+        # Right now I'm just trying something somewhat out of left-field, by
+        # pretending to be a socket. I'm not super confident that this will
+        # work, and it relies on having the appropriate _decref_socketios
+        # implementation, but there we are.
+        return socket.socket.makefile(
+            self, mode, buffering, encoding=encoding, errors=errors, newline=newline
+        )
+
+    def _decref_socketios(self):
+        if self._io_refs > 0:
+            self._io_refs -= 1
+        if self._closed:
+            self.close()
 
     def settimeout(self, timeout):
         self.__dict__['_timeout'] = timeout
 
     def gettimeout(self):
         return self._timeout
+
+    def setblocking(self, flag):
+        self.settimeout(None if flag else 0.0)
 
     def __getattr__(self, attribute):
         return getattr(self._socket, attribute)
