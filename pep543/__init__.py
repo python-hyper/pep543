@@ -8,7 +8,7 @@ import socket
 from abc import ABCMeta, abstractmethod, abstractproperty
 from enum import Enum, IntEnum
 
-from .utils import _Deadline
+from ._utils import _Deadline
 
 __all__ = [
     'TLSConfiguration', 'ClientContext', 'ServerContext', 'TLSWrappedBuffer',
