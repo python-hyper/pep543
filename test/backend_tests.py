@@ -117,7 +117,7 @@ def handshake_buffers(client, server, hostname=None):
     return client_buffer, server_buffer
 
 
-def assert_configs_work(backend, client_config, server_config):
+def assert_configs_work(backend, client_config, server_config, hostname=None):
     """
     Given a pair of configs (one for the client, and one for the server),
     creates contexts and buffers, performs a handshake, and then sends a bit of
@@ -127,7 +127,7 @@ def assert_configs_work(backend, client_config, server_config):
     """
     client_context = backend.client_context(client_config)
     server_context = backend.server_context(server_config)
-    client, server = handshake_buffers(client_context, server_context)
+    client, server = handshake_buffers(client_context, server_context, hostname)
     assert client.context is client_context
     assert server.context is server_context
     write_until_read(client, server, HTTP_REQUEST)
@@ -472,3 +472,41 @@ class SimpleNegotiation(object):
         assert (
             test_buffer[:message_size // 2] == HTTP_RESPONSE[:message_size // 2]
         )
+
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    @pytest.mark.parametrize('hostname', [None, 'localhost'])
+    def test_snicallback_fires_with_data(self,
+                                         server_cert,
+                                         ca_cert,
+                                         load_chain,
+                                         hostname):
+        """
+        In a basic, successful TLS negotiation, the SNI callback will be fired
+        and will provide the appropriate data.
+        """
+        callback_args = []
+        def callback(*args):
+            callback_args.append(args)
+            return args[-1]
+
+        cert_chain = load_chain(self.BACKEND, server_cert)
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            trust_store=trust_store
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=cert_chain,
+            validate_certificates=False,
+            sni_callback=callback
+        )
+        client, server = assert_configs_work(
+            self.BACKEND, client_config, server_config, hostname=hostname
+        )
+
+        assert len(callback_args) == 1
+        conn_object, name, config = callback_args[0]
+
+        assert conn_object is server
+        assert config == server_config
+        assert name == hostname
