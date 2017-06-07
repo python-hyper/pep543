@@ -485,6 +485,7 @@ class SimpleNegotiation(object):
         and will provide the appropriate data.
         """
         callback_args = []
+
         def callback(*args):
             callback_args.append(args)
             return args[-1]
@@ -510,3 +511,73 @@ class SimpleNegotiation(object):
         assert conn_object is server
         assert config == server_config
         assert name == hostname
+
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    @pytest.mark.parametrize('rval', (None, object()))
+    def test_snicallback_fails_with_none(self,
+                                         server_cert,
+                                         ca_cert,
+                                         load_chain,
+                                         rval):
+        """
+        If the SNI callback returns any non TLSConfiguration value, the
+        handshake fails.
+        """
+        callback_args = []
+
+        def callback(*args):
+            callback_args.append(args)
+            return rval
+
+        cert_chain = load_chain(self.BACKEND, server_cert)
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            trust_store=trust_store
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=cert_chain,
+            validate_certificates=False,
+            sni_callback=callback
+        )
+        # TODO: This is really overbroad, this error could come from anywhere.
+        with pytest.raises(pep543.TLSError):
+            assert_configs_work(
+                self.BACKEND, client_config, server_config
+            )
+
+        assert callback_args
+
+    @pytest.mark.parametrize('load_chain', CHAIN_LOADERS)
+    def test_snicallback_fails_with_exception(self,
+                                              server_cert,
+                                              ca_cert,
+                                              load_chain):
+        """
+        If the SNI callback raises an exception, the handshake fails.
+        """
+        callback_args = []
+
+        def callback(*args):
+            callback_args.append(args)
+            raise ValueError("Whoops!")
+
+        cert_chain = load_chain(self.BACKEND, server_cert)
+        trust_store = self.BACKEND.trust_store.from_pem_file(ca_cert['cert'])
+
+        client_config = pep543.TLSConfiguration(
+            trust_store=trust_store
+        )
+        server_config = pep543.TLSConfiguration(
+            certificate_chain=cert_chain,
+            validate_certificates=False,
+            sni_callback=callback
+        )
+        # TODO: This is really overbroad, this error could come from anywhere.
+        # We allow either the underlying error or TLSError here.
+        with pytest.raises((pep543.TLSError, ValueError)):
+            assert_configs_work(
+                self.BACKEND, client_config, server_config
+            )
+
+        assert callback_args
