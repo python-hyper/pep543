@@ -8,6 +8,7 @@ This module shims the standard library OpenSSL module into the PEP 543 API.
 import os
 import ssl
 import tempfile
+import weakref
 
 from . import (
     Backend,
@@ -17,6 +18,7 @@ from . import (
     NextProtocol,
     PrivateKey,
     ServerContext,
+    TLSConfiguration,
     TLSError,
     TLSVersion,
     TLSWrappedBuffer,
@@ -69,6 +71,51 @@ ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
 ctx.set_ciphers('ALL:COMPLEMENTOFALL')
 _cipher_map = {c['id'] & 0xffff: c['name'] for c in ctx.get_ciphers()}
 del ctx
+
+
+# This is a mapping of concrete SSLObject objects to the TLSWrappedBuffers
+# implementation used here. We use this to get the thing we need in the SNI
+# callback. The weakrefs are used to avoid keeping TLSWrappedBuffers objects
+# alive unnecessarily.
+_object_to_buffer_map = weakref.WeakValueDictionary()
+
+
+def _sni_callback_builder(user_callback, original_config):
+    """
+    This function returns a closure that includes the PEP 543 SNI callback we
+    want to call. The closure is the "wrapping" SNI callback, which we use to
+    translate from the stdlib's callback to the PEP 543 callback form.
+
+    Thanks to the immutability we can also close over the original context used
+    to add this SNI callback.
+    """
+    # This shortcut ensures that if there is no SNI callback to set, we unset
+    # it from the context, just to be sure.
+    if user_callback is None:
+        return None
+
+    def pep543_callback(ssl_obj, servername, stdlib_context):
+        buffer = _object_to_buffer_map[ssl_obj]
+
+        # TODO: Are exceptions sensibly propagated here?
+        new_config = user_callback(buffer, servername, original_config)
+
+        # Not returning a TLSConfiguration is an error.
+        if not isinstance(new_config, TLSConfiguration):
+            return ssl.ALERT_DESCRIPTION_INTERNAL_ERROR
+
+        # Returning an identical configuration to the one that was passed in
+        # means do nothing. If it's different we need to create a new
+        # SSLContext and pass it in.
+        if new_config != original_config:
+            new_ctx = _init_context(new_config)
+            ssl_obj.context = new_ctx
+
+        # Returning None, perversely, is how one signals success from this
+        # function. Will wonders never cease?
+        return None
+
+    return pep543_callback
 
 
 @contextmanager
@@ -189,6 +236,17 @@ def _configure_context_for_negotiation(context, inner_protocols):
     return context
 
 
+def _configure_context_for_sni(context, sni_callback, original_config):
+    """
+    Given a PEP 543 SNI callback, configures the SSLContext to actually call
+    it.
+    """
+    context.set_servername_callback(
+        _sni_callback_builder(sni_callback, original_config)
+    )
+    return context
+
+
 def _init_context(config):
     """
     Initialize an ssl.SSLContext object with a given configuration.
@@ -212,7 +270,9 @@ def _init_context(config):
         config.lowest_supported_version,
         config.highest_supported_version,
     )
-    # TODO: Add ServerNameCallback
+    some_context = _configure_context_for_sni(
+        some_context, config.sni_callback, config
+    )
     return some_context
 
 
@@ -238,6 +298,9 @@ class OpenSSLWrappedBuffer(TLSWrappedBuffer):
             server_side=server_side,
             server_hostname=server_hostname
         )
+
+        # Keep track of the fact that we are the owner of this object.
+        _object_to_buffer_map[self._object] = self
 
         # We need to track whether the connection is established to properly
         # report the TLS version. This is to work around a Python bug:
